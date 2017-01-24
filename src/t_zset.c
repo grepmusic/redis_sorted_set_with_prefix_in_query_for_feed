@@ -688,19 +688,32 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
     return x;
 }
 
-zskiplistNode *zslFirstInLexRangeByLast(zskiplistNode* node, zskiplist *zsl, zlexrangespec *range) {
+zskiplistNode *zslFirstInLexRangeByLast(zskiplistNode** pnode, int* index, zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
     if (!zslIsInLexRange(zsl,range)) return NULL;
 
-    x = node != NULL ? node : zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
+    if(*pnode == NULL) {
+        x = zsl->header;
+        i = zsl->level-1;
+    } else if(*pnode == (zskiplistNode*)-1) {
+        return NULL;
+    } else {
+        x = *pnode;
+        i = *index;
+    }
+    for (; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
         while (x->level[i].forward &&
                !zslLexValueGteMin(x->level[i].forward->obj,range))
             x = x->level[i].forward;
+    }
+    *index = zsl->level - 1; // TODO
+    *pnode = x;
+    if(*pnode == NULL) {
+        *pnode = (zskiplistNode*)-1;
     }
 
     /* This is an inner range, so the next node cannot be NULL. */
@@ -2939,16 +2952,20 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     char* min_prefix = (char*)zmalloc(prefix_len + value_score_max_len), *max_prefix = (char*)zmalloc(prefix_len + value_score_max_len);
     limit = atoi(c->argv[4]->ptr);
 
+    zskiplistNode* pln = NULL; // previous list node
+    int index;
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
 
         memcpy(min_prefix, (void*)pprefix[i]->ptr, prefix_len);
         memcpy(max_prefix, (void*)pprefix[i]->ptr, prefix_len);
-        memset(min_prefix, 0, prefix_len + value_score_max_len);
-        memset(max_prefix, 0, prefix_len + value_score_max_len);
+        memset(min_prefix + prefix_len, 0, value_score_max_len);
+        memset(max_prefix + prefix_len, 0, value_score_max_len);
 
         zslParseLexRangeWithPrefix(c->argv[minidx], c->argv[maxidx], &range, min_prefix, max_prefix, prefix_len);
+        redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
+        redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
 
         if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = zobj->ptr;
@@ -2959,21 +2976,21 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
             if (reverse) {
                 ln = zslLastInLexRange(zsl,&range);
             } else {
-                ln = zslFirstInLexRangeByLast(NULL, zsl,&range); // Todo
+                ln = zslFirstInLexRangeByLast(&pln, &index, zsl,&range);
+//                ln = zslFirstInLexRange(zsl, &range);
             }
 
             /* No "first" element in the specified interval. */
             if (ln == NULL) {
                 break;
-//                addReply(c, shared.emptymultibulk);
-//                zslFreeLexRange(&range);
-//                return;
             }
 
             /* We don't know in advance how many matching elements there are in the
              * list, so we push this object that will represent the multi-bulk
              * length in the output buffer, and will "fix" it later */
-            replylen = addDeferredMultiBulkLength(c);
+            if(replylen == NULL) {
+                replylen = addDeferredMultiBulkLength(c);
+            }
 
             /* If there is an offset, just traverse the number of elements without
              * checking the score because that is done in the next loop. */
@@ -3003,6 +3020,9 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
                     ln = ln->level[0].forward;
                 }
             }
+//            if(ln != NULL) {
+//                pln = ln;
+//            }
         } else {
             redisPanic("Unknown sorted set encoding");
         }
@@ -3012,8 +3032,15 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     min_prefix = NULL;
     zfree(max_prefix);
     max_prefix = NULL;
-
     zslFreeLexRange(&range);
+
+    redisLog(REDIS_WARNING,"------ %s:%d rangelen=%d", __FILE__, __LINE__, rangelen);
+
+    if(! rangelen) {
+        addReply(c, shared.emptymultibulk);
+        return;
+    }
+
     setDeferredMultiBulkLength(c, replylen, rangelen);
 }
 
@@ -3026,7 +3053,7 @@ void zrevrangebylexCommand(redisClient *c) {
 }
 
 void zrevrangebylex2Command(redisClient *c) {
-    genericZrangebylex2Command(c,1);
+    genericZrangebylex2Command(c,0);
 }
 
 void zcardCommand(redisClient *c) {
