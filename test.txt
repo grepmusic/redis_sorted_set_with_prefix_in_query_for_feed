@@ -1,0 +1,1 @@
+cd  /mnt/shared/wwwroot/redis_feed/src; killall redis-server; make; /mnt/shared/wwwroot/redis_feed/src/redis-server /mnt/shared/wwwroot/redis_feed/redis.conf; /mnt/shared/wwwroot/redis_feed/src/redis-cli
