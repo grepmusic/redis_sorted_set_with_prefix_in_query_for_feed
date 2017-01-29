@@ -688,32 +688,42 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
     return x;
 }
 
-zskiplistNode *zslFirstInLexRangeByLast(zskiplistNode** pnode, int* index, zskiplist *zsl, zlexrangespec *range) {
+zskiplistNode *zslFirstInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zskiplistNode** visitedNodes) {
     zskiplistNode *x;
     int i;
 
+//    redisLog(REDIS_WARNING,"------ %s:%d range=%p", __FILE__, __LINE__, range);
+    redisLog(REDIS_WARNING,"------ %s:%d zslFirstInLexRangeByLast range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
     /* If everything is out of range, return early. */
     if (!zslIsInLexRange(zsl,range)) return NULL;
+    redisLog(REDIS_WARNING,"------ %s:%d zslFirstInLexRangeByLast END range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
 
-    if(*pnode == NULL) {
-        x = zsl->header;
-        i = zsl->level-1;
-    } else if(*pnode == (zskiplistNode*)-1) {
-        return NULL;
+    if(visitedNodes[zsl->level - 1] != NULL) {
+        char changed = 0;
+        x = visitedNodes[zsl->level - 1];
+        for (i = zsl->level - 1; i >= 0; i--) {
+            if(! changed && visitedNodes[i]) {
+                x = visitedNodes[i];
+            }
+            /* Go forward while *OUT* of range. */
+            while (x->level[i].forward &&
+                   !zslLexValueGteMin(x->level[i].forward->obj,range)) {
+                x = x->level[i].forward;
+                changed = 1;
+            }
+            redisLog(REDIS_WARNING,"------ %s:%d i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
+            visitedNodes[i] = x;
+        }
     } else {
-        x = *pnode;
-        i = *index;
-    }
-    for (; i >= 0; i--) {
-        /* Go forward while *OUT* of range. */
-        while (x->level[i].forward &&
-               !zslLexValueGteMin(x->level[i].forward->obj,range))
-            x = x->level[i].forward;
-    }
-    *index = zsl->level - 1; // TODO
-    *pnode = x;
-    if(*pnode == NULL) {
-        *pnode = (zskiplistNode*)-1;
+        x = zsl->header;
+        for (i = zsl->level - 1; i >= 0; i--) {
+            /* Go forward while *OUT* of range. */
+            while (x->level[i].forward &&
+                   !zslLexValueGteMin(x->level[i].forward->obj,range))
+                x = x->level[i].forward;
+            visitedNodes[i] = x;
+        }
+//        redisLog(REDIS_WARNING,"------ %s:%d 2222 i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
     }
 
     /* This is an inner range, so the next node cannot be NULL. */
@@ -725,19 +735,42 @@ zskiplistNode *zslFirstInLexRangeByLast(zskiplistNode** pnode, int* index, zskip
     return x;
 }
 
-zskiplistNode *ZslNodeLastInLexRangeByLast(zskiplistNode* node, zskiplist *zsl, zlexrangespec *range) {
+zskiplistNode *ZslLastInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zskiplistNode** visitedNodes) {
     zskiplistNode *x;
     int i;
 
+//    redisLog(REDIS_WARNING,"------ %s:%d range=%p", __FILE__, __LINE__, range);
+    redisLog(REDIS_WARNING,"------ %s:%d ZslNodeLastInLexRangeByLast range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
     /* If everything is out of range, return early. */
     if (!zslIsInLexRange(zsl,range)) return NULL;
+    redisLog(REDIS_WARNING,"------ %s:%d ZslNodeLastInLexRangeByLast END range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
 
-    x = node != NULL ? node : zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        /* Go forward while *IN* range. */
-        while (x->level[i].forward &&
-            zslLexValueLteMax(x->level[i].forward->obj,range))
+    if(visitedNodes[zsl->level - 1] != NULL) {
+        char changed = 0;
+        x = visitedNodes[zsl->level - 1];
+        for (i = zsl->level - 1; i >= 0; i--) {
+            if(! changed && visitedNodes[i]) {
+                x = visitedNodes[i];
+            }
+            /* Go forward while *OUT* of range. */
+            while (x->level[i].forward &&
+                   zslLexValueLteMax(x->level[i].forward->obj,range)) {
                 x = x->level[i].forward;
+                changed = 1;
+            }
+            redisLog(REDIS_WARNING,"------ ZslNodeLastInLexRangeByLast %s:%d i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
+            visitedNodes[i] = x;
+        }
+    } else {
+        x = zsl->header;
+        for (i = zsl->level - 1; i >= 0; i--) {
+            /* Go forward while *OUT* of range. */
+            while (x->level[i].forward &&
+                   zslLexValueLteMax(x->level[i].forward->obj,range))
+                x = x->level[i].forward;
+            visitedNodes[i] = x;
+        }
+//        redisLog(REDIS_WARNING,"------ %s:%d 2222 i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
     }
 
     /* This is an inner range, so this node cannot be NULL. */
@@ -1029,6 +1062,91 @@ unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
         else
             eptr = NULL;
     }
+
+    return NULL;
+}
+
+/* Find pointer to the first element contained in the specified lex range.
+ * Returns NULL when no element is contained in the range. */
+unsigned char *zzlFirstInLexRangeByLast(unsigned char *zl, zlexrangespec *range, unsigned char* last_etpr) {
+    unsigned char *eptr, *sptr;
+
+    /* If everything is out of range, return early. */
+    if (!zzlIsInLexRange(zl,range)) return NULL;
+
+    if(last_etpr != NULL) {
+        eptr = last_etpr;
+    } else {
+        eptr = ziplistIndex(zl,0);
+    }
+
+    while (eptr != NULL) {
+        if (zzlLexValueGteMin(eptr,range)) {
+            /* Check if score <= max. */
+            if (zzlLexValueLteMax(eptr,range)) {
+//                if(petpr != NULL) {
+//                    *petpr = eptr;
+//                }
+                return eptr;
+            }
+//            if(petpr != NULL) {
+//                *petpr = NULL;
+//            }
+            return NULL;
+        }
+
+        /* Move to next element. */
+        sptr = ziplistNext(zl,eptr); /* This element score. Skip it. */
+        redisAssert(sptr != NULL);
+        eptr = ziplistNext(zl,sptr); /* Next element. */
+    }
+
+//    if(petpr != NULL) {
+//        *petpr = NULL;
+//    }
+    return NULL;
+}
+
+/* Find pointer to the last element contained in the specified lex range.
+ * Returns NULL when no element is contained in the range. */
+unsigned char *zzlLastInLexRangeByLast(unsigned char *zl, zlexrangespec *range, unsigned char* last_etpr) {
+    unsigned char *eptr, *sptr;
+
+    /* If everything is out of range, return early. */
+    if (!zzlIsInLexRange(zl,range)) return NULL;
+
+    if(last_etpr != NULL) {
+        eptr = last_etpr;
+    } else {
+        eptr = ziplistIndex(zl,-2);
+    }
+    while (eptr != NULL) {
+        if (zzlLexValueLteMax(eptr,range)) {
+            /* Check if score >= min. */
+            if (zzlLexValueGteMin(eptr,range)) {
+//                if(petpr != NULL) {
+//                    *petpr = eptr;
+//                }
+                return eptr;
+            }
+//            if(petpr != NULL) {
+//                *petpr = NULL;
+//            }
+            return NULL;
+        }
+
+        /* Move to previous element by moving to the score of previous element.
+         * When this returns NULL, we know there also is no element. */
+        sptr = ziplistPrev(zl,eptr);
+        if (sptr != NULL)
+            redisAssert((eptr = ziplistPrev(zl,sptr)) != NULL);
+        else
+            eptr = NULL;
+    }
+
+//    if(petpr != NULL) {
+//        *petpr = NULL;
+//    }
 
     return NULL;
 }
@@ -2951,15 +3069,24 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     size_t minlen = sdslen((sds)c->argv[minidx]->ptr), maxlen = sdslen((sds)c->argv[maxidx]->ptr), value_score_max_len = ((minlen < maxlen) ? maxlen : minlen);
     char* min_prefix = (char*)zmalloc(prefix_len + value_score_max_len), *max_prefix = (char*)zmalloc(prefix_len + value_score_max_len);
     limit = atoi(c->argv[4]->ptr);
+    // TODO check whether or not:
+    // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
 
-    zskiplistNode* pln = NULL; // previous list node
-    int index;
+    static zskiplistNode* visitedNodes[ZSKIPLIST_MAXLEVEL] = {0};
+    char invert = zobj->encoding == REDIS_ENCODING_ZIPLIST && reverse;
+    unsigned char* last_eptr = NULL;
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
 
-        memcpy(min_prefix, (void*)pprefix[i]->ptr, prefix_len);
-        memcpy(max_prefix, (void*)pprefix[i]->ptr, prefix_len);
+        if(invert) {
+            memcpy(min_prefix, (void*)pprefix[prefix_count - 1 - i]->ptr, prefix_len);
+            memcpy(max_prefix, (void*)pprefix[prefix_count - 1 - i]->ptr, prefix_len);
+        } else {
+            memcpy(min_prefix, (void*)pprefix[i]->ptr, prefix_len);
+            memcpy(max_prefix, (void*)pprefix[i]->ptr, prefix_len);
+        }
+
         memset(min_prefix + prefix_len, 0, value_score_max_len);
         memset(max_prefix + prefix_len, 0, value_score_max_len);
 
@@ -2967,16 +3094,84 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
         redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
         redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
 
-        if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+        if(zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+
+            unsigned char *zl = zobj->ptr;
+            unsigned char *eptr, *sptr;
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vlong;
+
+            /* If reversed, get the last node in range as starting point. */
+            if (reverse) {
+                eptr = zzlLastInLexRangeByLast(zl,&range, last_eptr);
+            } else {
+                eptr = zzlFirstInLexRangeByLast(zl,&range, last_eptr);
+            }
+
+            /* Get score pointer for the first element. */
+            redisAssertWithInfo(c,zobj,eptr != NULL);
+            sptr = ziplistNext(zl,eptr);
+
+            /* We don't know in advance how many matching elements there are in the
+             * list, so we push this object that will represent the multi-bulk
+             * length in the output buffer, and will "fix" it later */
+            if(replylen == NULL) {
+                replylen = addDeferredMultiBulkLength(c);
+            }
+
+//            /* If there is an offset, just traverse the number of elements without
+//             * checking the score because that is done in the next loop. */
+//            while (eptr && offset--) {
+//                if (reverse) {
+//                    zzlPrev(zl,&eptr,&sptr);
+//                } else {
+//                    zzlNext(zl,&eptr,&sptr);
+//                }
+//            }
+
+            while (eptr && the_limit--) {
+                /* Abort when the node is no longer in range. */
+                if (reverse) {
+                    if (!zzlLexValueGteMin(eptr,&range)) break;
+                } else {
+                    if (!zzlLexValueLteMax(eptr,&range)) break;
+                }
+
+                /* We know the element exists, so ziplistGet should always
+                 * succeed. */
+                redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+
+                rangelen++;
+                if (vstr == NULL) {
+                    addReplyBulkLongLong(c,vlong);
+                } else {
+                    addReplyBulkCBuffer(c,vstr,vlen);
+                }
+
+                /* Move to next node */
+                if (reverse) {
+                    zzlPrev(zl,&eptr,&sptr);
+                } else {
+                    zzlNext(zl,&eptr,&sptr);
+                }
+                last_eptr = eptr;
+            }
+
+        } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = zobj->ptr;
             zskiplist *zsl = zs->zsl;
             zskiplistNode *ln;
 
             /* If reversed, get the last node in range as starting point. */
             if (reverse) {
-                ln = zslLastInLexRange(zsl,&range);
+//                ln = zslLastInLexRange(zsl,&range);
+                ln = ZslLastInLexRangeByLast(zsl, &range, visitedNodes);
             } else {
-                ln = zslFirstInLexRangeByLast(&pln, &index, zsl,&range);
+                ln = zslFirstInLexRangeByLast(zsl, &range, visitedNodes);
+                for(int j = 0; j < ZSKIPLIST_MAXLEVEL; ++j) {
+                    redisLog(REDIS_WARNING,"------ %s:%d  visitedNodes[%d]=%p", __FILE__, __LINE__, j, (void*)visitedNodes[j]);
+                }
 //                ln = zslFirstInLexRange(zsl, &range);
             }
 
@@ -3020,9 +3215,6 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
                     ln = ln->level[0].forward;
                 }
             }
-//            if(ln != NULL) {
-//                pln = ln;
-//            }
         } else {
             redisPanic("Unknown sorted set encoding");
         }
@@ -3053,7 +3245,7 @@ void zrevrangebylexCommand(redisClient *c) {
 }
 
 void zrevrangebylex2Command(redisClient *c) {
-    genericZrangebylex2Command(c,0);
+    genericZrangebylex2Command(c,1);
 }
 
 void zcardCommand(redisClient *c) {
