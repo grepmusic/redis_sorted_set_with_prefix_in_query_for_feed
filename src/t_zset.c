@@ -511,6 +511,7 @@ int zslParseLexRangeItemWithPrefix(robj *item, robj **dest, int *ex, char* prefi
     char *c = (char*)item->ptr;
     size_t score_value_len;
     char tmp;
+    char is_max_prefix = 1;
 
     switch(c[0]) {
     case '+':
@@ -521,12 +522,19 @@ int zslParseLexRangeItemWithPrefix(robj *item, robj **dest, int *ex, char* prefi
                 tmp = *c;
                 if(tmp != '\xff') {
                         *c = tmp + 1;
+                        is_max_prefix = 0;
                         break;
                 }
-                *c = 0; // TODO fix all with 0xff
+                *c = 0; // TODO test with 0xff
                 --c;
         }
-        *dest = createStringObject(prefix, prefix_len);
+        if(! is_max_prefix) {
+            *dest = createStringObject(prefix, prefix_len);
+        } else {
+            *ex = 0;
+            *dest = shared.maxstring;
+            incrRefCount(shared.maxstring);
+        }
         return REDIS_OK;
     case '-':
         if (c[1] != '\0') return REDIS_ERR;
@@ -3169,9 +3177,9 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
                 ln = ZslLastInLexRangeByLast(zsl, &range, visitedNodes);
             } else {
                 ln = zslFirstInLexRangeByLast(zsl, &range, visitedNodes);
-                for(int j = 0; j < ZSKIPLIST_MAXLEVEL; ++j) {
-                    redisLog(REDIS_WARNING,"------ %s:%d  visitedNodes[%d]=%p", __FILE__, __LINE__, j, (void*)visitedNodes[j]);
-                }
+//                for(int j = 0; j < ZSKIPLIST_MAXLEVEL; ++j) {
+//                    redisLog(REDIS_WARNING,"------ %s:%d  visitedNodes[%d]=%p", __FILE__, __LINE__, j, (void*)visitedNodes[j]);
+//                }
 //                ln = zslFirstInLexRange(zsl, &range);
             }
 
