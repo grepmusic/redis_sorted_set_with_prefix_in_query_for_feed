@@ -3036,6 +3036,37 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
     setDeferredMultiBulkLength(c, replylen, rangelen);
 }
 
+int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
+    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
+    char bufa[128], bufb[128], *astr, *bstr;
+    size_t alen, blen, minlen;
+
+    if (a == b) return 0;
+    if (sdsEncodedObject(a)) {
+        astr = a->ptr;
+        alen = sdslen(astr);
+    } else {
+        alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
+        astr = bufa;
+    }
+    if (sdsEncodedObject(b)) {
+        bstr = b->ptr;
+        blen = sdslen(bstr);
+    } else {
+        blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
+        bstr = bufb;
+    }
+    int cmp;
+    if(alen <= offset || blen <= offset) {
+        return alen - blen;
+    }
+
+    minlen = (alen < blen) ? alen: blen;
+    cmp = memcmp(astr + offset,bstr + offset,minlen - offset);
+    if (cmp == 0) return alen-blen;
+    return cmp;
+}
+
 // command usage:
 // z(rev)rangebylex2 key max_score_value min_score_value limit prefix1 [ prefix2 ... prefixN ]
 void genericZrangebylex2Command(redisClient *c, int reverse) {
@@ -3085,6 +3116,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     unsigned char* last_eptr = NULL;
     list* result_list = listCreate();
     listNode** last_list_node = zcalloc(prefix_count * sizeof(listNode*));
+    listNode* start_list_node = NULL;
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
@@ -3218,11 +3250,22 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
                 rangelen++;
 //                addReplyBulk(c,ln->obj);
                 if(last_list_node[i] != NULL) {
-
+                    start_list_node = last_list_node[i];
                 } else {
-                    listInsertNode(result_list, result_list->tail, ln->obj, 1);
-                    last_list_node[i] = ln->obj;
+//                    listInsertNode(result_list, result_list->tail, ln->obj, 1);
+//                    tmp = zmalloc(sizeof(listNode));
+//                    tmp->value = (void*)ln->obj;
+                    start_list_node = result_list->head;
                 }
+
+                while(listNextNode(start_list_node) != NULL) {
+                    // if(listNextNode(start_list_node)->value)
+                    // if(compareStringObjectsWithOffsets(listNextNode(start_list_node)->value, )) // TODO compare
+
+                    // sdscmp(listNextNode(start_list_node)->value, ln->obj->ptr)
+                    start_list_node = listNextNode(start_list_node);
+                }
+
 
                 /* Move to next node */
                 if (reverse) {
