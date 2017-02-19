@@ -3036,6 +3036,25 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
     setDeferredMultiBulkLength(c, replylen, rangelen);
 }
 
+void dumpHex(char* addr, size_t size) {
+    printf("addr=%p, content:", addr);
+    for(size_t i = 0; i < size; ++i) {
+        if(addr[i] >= '0' && addr[i] <= '9' || addr[i] >= 'a' && addr[i] <= 'z' || addr[i] >= 'A' && addr[i] <= 'Z') {
+            printf(" *%c", addr[i]);
+        } else {
+            printf(" %02x", addr[i]);
+        }
+    }
+    printf("\n");
+}
+
+void dumpCmp(void* a1, size_t s1, void* a2, size_t s2, int result) {
+    dumpHex(a1, s1);
+    printf("%c  ", (result > 0 ? '>' : (result < 0 ? '<' : '=')));
+    dumpHex(a2, s2);
+    printf("\n");
+}
+
 int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
     redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
@@ -3063,9 +3082,15 @@ int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
 
     minlen = (alen < blen) ? alen: blen;
     cmp = memcmp(astr + offset,bstr + offset,minlen - offset);
+    dumpCmp(astr, alen, bstr, blen, cmp);
     if (cmp == 0) return alen-blen;
     return cmp;
 }
+
+typedef struct linkListNode {
+    void* value;
+    struct linkListNode* next;
+} linkListNode;
 
 // command usage:
 // z(rev)rangebylex2 key max_score_value min_score_value limit prefix1 [ prefix2 ... prefixN ]
@@ -3114,9 +3139,10 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     static zskiplistNode* visitedNodes[ZSKIPLIST_MAXLEVEL] = {0};
     char invert = zobj->encoding == REDIS_ENCODING_ZIPLIST && reverse;
     unsigned char* last_eptr = NULL;
-    list* result_list = listCreate();
-    listNode** last_list_node = zcalloc(prefix_count * sizeof(listNode*));
-    listNode* start_list_node = NULL;
+//    listNode** last_list_node = zcalloc(prefix_count * sizeof(listNode*));
+    linkListNode* head = zcalloc(sizeof(*head));
+    head->next = head->value = NULL;
+    linkListNode* start_list_node = NULL;
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
@@ -3239,6 +3265,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
 //                }
 //            }
 
+            start_list_node = head;
             while (ln && the_limit--) {
                 /* Abort when the node is no longer in range. */
                 if (reverse) {
@@ -3247,25 +3274,38 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
                     if (!zslLexValueLteMax(ln->obj,&range)) break;
                 }
 
-                rangelen++;
+//                rangelen++;
 //                addReplyBulk(c,ln->obj);
-                if(last_list_node[i] != NULL) {
+                /*if(last_list_node[i] != NULL) {
                     start_list_node = last_list_node[i];
                 } else {
 //                    listInsertNode(result_list, result_list->tail, ln->obj, 1);
 //                    tmp = zmalloc(sizeof(listNode));
 //                    tmp->value = (void*)ln->obj;
                     start_list_node = result_list->head;
+                }*/
+
+                if(reverse) {
+                    while(start_list_node->next != NULL) {
+                        if(compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len) <= 0) {
+                            break;
+                        }
+                        start_list_node = start_list_node->next;
+                    }
+                } else {
+                    while(start_list_node->next != NULL) {
+                        if(compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len) >= 0) {
+                            break;
+                        }
+                        start_list_node = start_list_node->next;
+                    }
                 }
 
-                while(listNextNode(start_list_node) != NULL) {
-                    // if(listNextNode(start_list_node)->value)
-                    // if(compareStringObjectsWithOffsets(listNextNode(start_list_node)->value, )) // TODO compare
-
-                    // sdscmp(listNextNode(start_list_node)->value, ln->obj->ptr)
-                    start_list_node = listNextNode(start_list_node);
-                }
-
+                linkListNode* tmp = zmalloc(sizeof(*tmp));
+                tmp->value = ln->obj;
+                tmp->next = start_list_node->next;
+                start_list_node->next = tmp;
+                start_list_node = tmp;
 
                 /* Move to next node */
                 if (reverse) {
@@ -3278,6 +3318,17 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
             redisPanic("Unknown sorted set encoding");
         }
     }
+    do {
+        start_list_node = head->next;
+        zfree(head);
+        if(start_list_node != NULL) {
+            rangelen++;
+            addReplyBulk(c, start_list_node->value);
+        } else {
+            break;
+        }
+        head = start_list_node;
+    } while(--limit);
 
     zfree(min_prefix);
     min_prefix = NULL;
