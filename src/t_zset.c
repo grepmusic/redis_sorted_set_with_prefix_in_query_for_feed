@@ -3082,15 +3082,15 @@ int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
 
     minlen = (alen < blen) ? alen: blen;
     cmp = memcmp(astr + offset,bstr + offset,minlen - offset);
-    dumpCmp(astr, alen, bstr, blen, cmp);
+//    dumpCmp(astr, alen, bstr, blen, cmp);
     if (cmp == 0) return alen-blen;
     return cmp;
 }
 
-typedef struct linkListNode {
+typedef struct linkListNodeX {
     void* value;
-    struct linkListNode* next;
-} linkListNode;
+    struct linkListNodeX* next;
+} linkListNodeX;
 
 // command usage:
 // z(rev)rangebylex2 key max_score_value min_score_value limit prefix1 [ prefix2 ... prefixN ]
@@ -3140,9 +3140,10 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     char invert = zobj->encoding == REDIS_ENCODING_ZIPLIST && reverse;
     unsigned char* last_eptr = NULL;
 //    listNode** last_list_node = zcalloc(prefix_count * sizeof(listNode*));
-    linkListNode* head = zcalloc(sizeof(*head));
+    linkListNodeX* head = zcalloc(sizeof(*head));
     head->next = head->value = NULL;
-    linkListNode* start_list_node = NULL;
+    linkListNodeX* start_list_node = NULL;
+    start_list_node = head;
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
@@ -3162,7 +3163,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
         redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
         redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
 
-        printf("i=%d\n", i);
+//        printf("i=%d\n", i);
         if(zobj->encoding == REDIS_ENCODING_ZIPLIST) {
 
             unsigned char *zl = zobj->ptr;
@@ -3266,7 +3267,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
 //                }
 //            }
 
-            start_list_node = head;
+//            start_list_node = head;
             while (ln && the_limit--) {
                 /* Abort when the node is no longer in range. */
                 if (reverse) {
@@ -3286,7 +3287,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
                     start_list_node = result_list->head;
                 }*/
 
-/*                if(reverse) {
+                /*if(reverse) {
                     while(start_list_node->next != NULL) {
                         if(compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len) <= 0) {
                             break;
@@ -3302,12 +3303,12 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
                     }
                 }*/
 
-                printf("the_limit=%ld, head=%p, start_list_node=%p, ln=%p, ln->obj->ptr = %p, ln->obj->ptr content:",
-                       the_limit, head, start_list_node, ln, ln->obj->ptr);
-                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
-                printf("\n");
+//                printf("the_limit=%ld, head=%p, start_list_node=%p, ln=%p, ln->obj=%p, ln->obj->ptr = %p, ln->obj->ptr content:",
+//                       the_limit, head, start_list_node, ln, ln->obj, ln->obj->ptr);
+//                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+//                printf("\n");
 
-                linkListNode* tmp = zmalloc(sizeof(*tmp));
+                linkListNodeX* tmp = zmalloc(sizeof(*tmp));
                 tmp->value = ln->obj; // sdscpy(ln->obj->ptr);
                 tmp->next = start_list_node->next;
                 start_list_node->next = tmp;
@@ -3329,6 +3330,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
         zfree(head);
         if(start_list_node != NULL) {
             rangelen++;
+            printf("reply node=%p, value=%p\n", start_list_node, start_list_node->value);
             addReplyBulk(c, start_list_node->value);
         } else {
             break;
