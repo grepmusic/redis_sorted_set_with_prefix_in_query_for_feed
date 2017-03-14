@@ -1,6 +1,6 @@
 cd  /home/vagrant/redis_feed/src; killall redis-server; make; /home/vagrant/redis_feed/src/redis-server /home/vagrant/redis_feed/redis.conf; echo ok || /home/vagrant/redis_feed/src/redis-cli
 
 
-# zadd k 0 a1 0 a2 0 b1 0 b2 0 b3 0 b4 0 c1 0 c2 0 c3 0 d0
+# zadd k 0 a01 0 a07 0 b06 0 b04 0 b03 0 b02 0 c05 0 c10 0 c11 0 d00
 # zrevrangebylex2 k + - 1 a b c
 # -rlptg o D
