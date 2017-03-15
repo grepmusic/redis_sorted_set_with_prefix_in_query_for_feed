@@ -3055,12 +3055,36 @@ void dumpCmp(void* a1, size_t s1, void* a2, size_t s2, int result) {
     printf("\n");
 }
 
+static int zzlLexValueGteMin3(unsigned char *p, zlexrangespec *spec, robj** out_value) {
+    robj *value = ziplistGetObject(p);
+    int res = zslLexValueGteMin(value,spec);
+    if(out_value) {
+        *out_value = value;
+    } else {
+        decrRefCount(value);
+    }
+    return res;
+}
+
+static int zzlLexValueLteMax3(unsigned char *p, zlexrangespec *spec, robj** out_value) {
+    robj *value = ziplistGetObject(p);
+    int res = zslLexValueLteMax(value,spec);
+    if(out_value) {
+        *out_value = value;
+    } else {
+        decrRefCount(value);
+    }
+    return res;
+}
+
 int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
     redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
 
     if (a == b) return 0;
+    if (b == shared.maxstring) return -1;
+    if (a == shared.maxstring) return 1;
     if (sdsEncodedObject(a)) {
         astr = a->ptr;
         alen = sdslen(astr);
@@ -3143,7 +3167,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     linkListNode* head = zcalloc(sizeof(*head));
     head->next = head->value = NULL;
     linkListNode* start_list_node = NULL;
-    start_list_node = head;
+    robj* zzlnobj = NULL;
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
@@ -3168,15 +3192,16 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
 
             unsigned char *zl = zobj->ptr;
             unsigned char *eptr, *sptr;
-            unsigned char *vstr;
-            unsigned int vlen;
-            long long vlong;
 
             /* If reversed, get the last node in range as starting point. */
             if (reverse) {
-                eptr = zzlLastInLexRangeByLast(zl,&range, last_eptr);
+                eptr = zzlLastInLexRangeByLast(zl, &range, last_eptr);
             } else {
-                eptr = zzlFirstInLexRangeByLast(zl,&range, last_eptr);
+                eptr = zzlFirstInLexRangeByLast(zl, &range, last_eptr);
+            }
+
+            if(eptr == NULL) { // TODO think about if it is right to *continue* ?
+                continue;
             }
 
             /* Get score pointer for the first element. */
@@ -3200,24 +3225,54 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
 //                }
 //            }
 
+            start_list_node = head;
             while (eptr && the_limit--) {
                 /* Abort when the node is no longer in range. */
                 if (reverse) {
-                    if (!zzlLexValueGteMin(eptr,&range)) break;
+                    if (!zzlLexValueGteMin3(eptr,&range, &zzlnobj)) break;
                 } else {
-                    if (!zzlLexValueLteMax(eptr,&range)) break;
+                    if (!zzlLexValueLteMax3(eptr,&range, &zzlnobj)) break;
                 }
 
                 /* We know the element exists, so ziplistGet should always
                  * succeed. */
-                redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+                /*redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
                 rangelen++;
                 if (vstr == NULL) {
                     addReplyBulkLongLong(c,vlong);
                 } else {
                     addReplyBulkCBuffer(c,vstr,vlen);
+                }*/
+
+//                decrRefCount(zzlnobj);
+                if(reverse) {
+                    while(start_list_node->next != NULL) {
+                        if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len) <= 0) {
+                            break;
+                        }
+                        start_list_node = start_list_node->next;
+                    }
+                } else {
+                    while(start_list_node->next != NULL) {
+                        if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len) >= 0) {
+                            break;
+                        }
+                        start_list_node = start_list_node->next;
+                    }
                 }
+
+//                printf("the_limit=%ld, head=%p, start_list_node=%p, ln=%p, ln->obj=%p, ln->obj->ptr = %p, ln->obj->ptr content:",
+//                       the_limit, head, start_list_node, ln, ln->obj, ln->obj->ptr);
+//                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+//                printf("\n");
+
+                // add tmp after start_list_node & move start_list_node next
+                linkListNode* tmp = zmalloc(sizeof(*tmp));
+                tmp->value = zzlnobj; // sdscpy(ln->obj->ptr);
+                tmp->next = start_list_node->next;
+                start_list_node->next = tmp;
+                start_list_node = tmp;
 
                 /* Move to next node */
                 if (reverse) {
@@ -3325,6 +3380,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
             redisPanic("Unknown sorted set encoding");
         }
     }
+
     do {
         start_list_node = head->next;
         zfree(head);
@@ -3332,6 +3388,9 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
             rangelen++;
             printf("reply node=%p, value=%p\n", start_list_node, start_list_node->value);
             addReplyBulk(c, start_list_node->value);
+            if((zobj->encoding == REDIS_ENCODING_ZIPLIST)) {
+                decrRefCount((robj*)(start_list_node->value));
+            }
         } else {
             break;
         }
