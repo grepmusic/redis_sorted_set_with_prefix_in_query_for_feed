@@ -3117,24 +3117,41 @@ typedef struct linkListNode {
 } linkListNode;
 
 // command usage:
-// z(rev)rangebylex2 key max_score_value min_score_value limit prefix1 [ prefix2 ... prefixN ]
-void genericZrangebylex2Command(redisClient *c, int reverse) {
+// zrangebylexin key is_reverse_order min_lexical_value max_lexical_value limit asc_prefix1 [ asc_prefix2 ... asc_prefixN ]
+void genericZrangebylexinCommand(redisClient *c) {
     zlexrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
     long offset = 0, limit = -1;
     unsigned long rangelen = 0;
     void *replylen = NULL;
-    int minidx, maxidx;
+    int minidx, maxidx, reverse;
+
+    if(sdslen((sds)c->argv[2]->ptr) == 1) {
+        switch(*(char*)(c->argv[2]->ptr)) {
+            case '0': // not is_reverse_order
+            case '+': // more and more
+            case '<': // small to big
+            case 'A': // ASC
+            case 'a': // asc
+                reverse = 0;
+                break;
+            default:
+                reverse = 1;
+                break;
+        }
+    } else {
+        reverse = 1;
+    }
 
     /* Parse the range arguments. */
-    if (reverse) {
-        /* Range is given as [max,min] */
-        maxidx = 2; minidx = 3;
-    } else {
+//    if (reverse) {
+//        /* Range is given as [max,min] */
+//        maxidx = 3; minidx = 4;
+//    } else {
         /* Range is given as [min,max] */
-        minidx = 2; maxidx = 3;
-    }
+        minidx = 3; maxidx = 4;
+//    }
 
     if (zslParseLexRange(c->argv[minidx],c->argv[maxidx],&range) != REDIS_OK) {
         addReplyError(c,"min or max not valid string range item");
@@ -3151,15 +3168,24 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
 
     // max = prefixN + max_score_value
     // prefix start at pos 5
-    int prefix_count = c->argc - 5;
-    robj **pprefix = c->argv + 5;
+    int prefix_count = c->argc - 6;
+    robj **pprefix = c->argv + 6;
     size_t prefix_len = sdslen((sds)pprefix[0]->ptr);
     size_t minlen = sdslen((sds)c->argv[minidx]->ptr), maxlen = sdslen((sds)c->argv[maxidx]->ptr), value_score_max_len = ((minlen < maxlen) ? maxlen : minlen);
-    char* min_prefix = (char*)zmalloc(prefix_len + value_score_max_len), *max_prefix = (char*)zmalloc(prefix_len + value_score_max_len);
-    limit = atoi(c->argv[4]->ptr);
-    // TODO check whether or not:
-    // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
+    limit = atoi(c->argv[5]->ptr); // TODO why limit == 0 make redis server crash ???
+    limit = limit < 0 ? limit : -1;
 
+    sds first_prefix = (sds)pprefix[0]->ptr;
+    // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
+    for(int i = 1; i < prefix_count; i++) {
+        if(sdslen((sds)pprefix[i]->ptr) != prefix_len || sdscmp(first_prefix, (sds)pprefix[i]->ptr) >= 0) {
+            zslFreeLexRange(&range);
+            addReplyError(c,"asc_prefixes must be with the same length and lexical memcmp(asc_prefixes[i-1], asc_prefixes[i]) < 0 for 'ZRANGEBYLEXIN' command");
+            return;
+        }
+    }
+
+    char* min_prefix = (char*)zmalloc(prefix_len + value_score_max_len), *max_prefix = (char*)zmalloc(prefix_len + value_score_max_len);
     zskiplistNode* visitedNodes[ZSKIPLIST_MAXLEVEL] = {0};
     char invert = zobj->encoding == REDIS_ENCODING_ZIPLIST && reverse;
     unsigned char* last_eptr = NULL;
@@ -3168,6 +3194,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
     head->next = head->value = NULL;
     linkListNode* start_list_node = NULL;
     robj* zzlnobj = NULL;
+
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
@@ -3268,6 +3295,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
 //                printf("\n");
 
                 // add tmp after start_list_node & move start_list_node next
+                // TODO make node on stack if possible, better not use zmalloc
                 linkListNode* tmp = zmalloc(sizeof(*tmp));
                 tmp->value = zzlnobj; // sdscpy(ln->obj->ptr);
                 tmp->next = start_list_node->next;
@@ -3363,6 +3391,7 @@ void genericZrangebylex2Command(redisClient *c, int reverse) {
 //                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 //                printf("\n");
 
+                // TODO make node on stack if possible, better not use zmalloc
                 linkListNode* tmp = zmalloc(sizeof(*tmp));
                 tmp->value = ln->obj; // sdscpy(ln->obj->ptr);
                 tmp->next = start_list_node->next;
@@ -3629,8 +3658,8 @@ void zrevrangebylexCommand(redisClient *c) {
     genericZrangebylexCommand(c,1);
 }
 
-void zrevrangebylex2Command(redisClient *c) {
-    genericZrangebylex2Command(c,1);
+void zrangebylexinCommand(redisClient *c) {
+    genericZrangebylexinCommand(c);
 }
 
 void zcardCommand(redisClient *c) {
