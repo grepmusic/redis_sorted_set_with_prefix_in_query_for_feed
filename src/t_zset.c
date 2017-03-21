@@ -3173,7 +3173,7 @@ void genericZrangebylexinCommand(redisClient *c) {
     size_t prefix_len = sdslen((sds)pprefix[0]->ptr);
     size_t minlen = sdslen((sds)c->argv[minidx]->ptr), maxlen = sdslen((sds)c->argv[maxidx]->ptr), value_score_max_len = ((minlen < maxlen) ? maxlen : minlen);
     limit = atoi(c->argv[5]->ptr); // TODO why limit == 0 make redis server crash ???
-    limit = limit < 0 ? limit : -1;
+    limit = limit > 0 ? limit : -1;
 
     sds first_prefix = (sds)pprefix[0]->ptr;
     // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
@@ -3190,7 +3190,12 @@ void genericZrangebylexinCommand(redisClient *c) {
     char invert = zobj->encoding == REDIS_ENCODING_ZIPLIST && reverse;
     unsigned char* last_eptr = NULL;
 //    listNode** last_list_node = zcalloc(prefix_count * sizeof(listNode*));
-    linkListNode* head = zcalloc(sizeof(*head));
+
+    #define NODE_POOL_SIZE 1024
+    linkListNode node_pool[NODE_POOL_SIZE] = {0}; // node pool to avoid z*alloc function call
+    int node_pool_index = 0;
+
+    linkListNode* head = (linkListNode*)&node_pool[node_pool_index++]; // zcalloc(sizeof(*head));
     head->next = head->value = NULL;
     linkListNode* start_list_node = NULL;
     robj* zzlnobj = NULL;
@@ -3211,8 +3216,8 @@ void genericZrangebylexinCommand(redisClient *c) {
         memset(max_prefix + prefix_len, 0, value_score_max_len);
 
         zslParseLexRangeWithPrefix(c->argv[minidx], c->argv[maxidx], &range, min_prefix, max_prefix, prefix_len);
-        redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
-        redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
+//        redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
+//        redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
 
 //        printf("i=%d\n", i);
         if(zobj->encoding == REDIS_ENCODING_ZIPLIST) {
@@ -3295,8 +3300,13 @@ void genericZrangebylexinCommand(redisClient *c) {
 //                printf("\n");
 
                 // add tmp after start_list_node & move start_list_node next
-                // TODO make node on stack if possible, better not use zmalloc
-                linkListNode* tmp = zmalloc(sizeof(*tmp));
+                linkListNode* tmp; // = zmalloc(sizeof(*tmp));
+                if(node_pool_index < NODE_POOL_SIZE) {
+                    tmp = (linkListNode*)&node_pool[node_pool_index++];
+                } else {
+                    tmp = zmalloc(sizeof(*tmp));
+                }
+
                 tmp->value = zzlnobj; // sdscpy(ln->obj->ptr);
                 tmp->next = start_list_node->next;
                 start_list_node->next = tmp;
@@ -3391,8 +3401,13 @@ void genericZrangebylexinCommand(redisClient *c) {
 //                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 //                printf("\n");
 
-                // TODO make node on stack if possible, better not use zmalloc
-                linkListNode* tmp = zmalloc(sizeof(*tmp));
+                linkListNode* tmp; // = zmalloc(sizeof(*tmp));
+                if(node_pool_index < NODE_POOL_SIZE) {
+                    tmp = (linkListNode*)&node_pool[node_pool_index++];
+                } else {
+                    tmp = zmalloc(sizeof(*tmp));
+                }
+
                 tmp->value = ln->obj; // sdscpy(ln->obj->ptr);
                 tmp->next = start_list_node->next;
                 start_list_node->next = tmp;
@@ -3412,10 +3427,12 @@ void genericZrangebylexinCommand(redisClient *c) {
 
     do {
         start_list_node = head->next;
-        zfree(head);
+        if(rangelen >= NODE_POOL_SIZE) {
+            zfree(head);
+        }
         if(start_list_node != NULL) {
             rangelen++;
-            printf("reply node=%p, value=%p\n", start_list_node, start_list_node->value);
+//            printf("reply node=%p, value=%p\n", start_list_node, start_list_node->value);
             addReplyBulk(c, start_list_node->value);
             if((zobj->encoding == REDIS_ENCODING_ZIPLIST)) {
                 decrRefCount((robj*)(start_list_node->value));
@@ -3432,7 +3449,7 @@ void genericZrangebylexinCommand(redisClient *c) {
     max_prefix = NULL;
     zslFreeLexRange(&range);
 
-    redisLog(REDIS_WARNING,"------ %s:%d rangelen=%d", __FILE__, __LINE__, rangelen);
+//    redisLog(REDIS_WARNING,"------ %s:%d rangelen=%d", __FILE__, __LINE__, rangelen);
 
     if(! rangelen) {
         addReply(c, shared.emptymultibulk);
