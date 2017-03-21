@@ -1,0 +1,96 @@
+diff --git a/php_redis.h b/php_redis.h
+index b52fcee..da8d203 100644
+--- a/php_redis.h
++++ b/php_redis.h
+@@ -116,6 +116,7 @@ PHP_METHOD(Redis, zRevRange);
+ PHP_METHOD(Redis, zRangeByScore);
+ PHP_METHOD(Redis, zRangeByLex);
+ PHP_METHOD(Redis, zRevRangeByScore);
++PHP_METHOD(Redis, zRangeByLexIn);
+ PHP_METHOD(Redis, zRangeByLex);
+ PHP_METHOD(Redis, zRevRangeByLex);
+ PHP_METHOD(Redis, zRemRangeByLex);
+diff --git a/redis.c b/redis.c
+index b0893ce..520494f 100644
+--- a/redis.c
++++ b/redis.c
+@@ -202,6 +202,7 @@ static zend_function_entry redis_functions[] = {
+      PHP_ME(Redis, zRevRange, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, zRangeByScore, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, zRevRangeByScore, NULL, ZEND_ACC_PUBLIC)
++     PHP_ME(Redis, zRangeByLexIn, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, zRangeByLex, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, zRevRangeByLex, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, zLexCount, NULL, ZEND_ACC_PUBLIC)
+@@ -2053,6 +2054,12 @@ PHP_METHOD(Redis, zRevRangeByScore) {
+ }
+ /* }}} */
+ 
++PHP_METHOD(Redis, zRangeByLexIn) {
++    REDIS_PROCESS_KW_CMD("ZRANGEBYLEXIN", redis_zrangebylexin_cmd,
++        redis_sock_read_multibulk_reply);
++}
++/* }}} */
++
+ /* {{{ proto array Redis::zRangeByLex(string key, string min, string max, [
+  *                                    offset, limit]) */
+ PHP_METHOD(Redis, zRangeByLex) {
+diff --git a/redis_commands.c b/redis_commands.c
+index 0de5b77..acef6b1 100644
+--- a/redis_commands.c
++++ b/redis_commands.c
+@@ -851,6 +851,54 @@ int redis_unsubscribe_cmd(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock,
+     return SUCCESS;
+ }
+ 
++/* ZRANGEBYLEXIN */
++// ZRANGEBYLEXIN key is_reverse_order min_lexical_value max_lexical_value limit asc_prefix1 [ asc_prefix2 ... asc_prefixN ]
++int redis_zrangebylexin_cmd(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock,
++                          char *kw, char **cmd, int *cmd_len, short *slot,
++                          void **ctx)
++{
++    char *key, *is_reverse_order, *min, *max, *limit, *prefix1;
++    int key_len, is_reverse_order_len, min_len, max_len, limit_len, prefix1_len, key_free;
++    // long offset, count;
++    int argc = ZEND_NUM_ARGS();
++
++    if(argc < 6) {
++        php_error_docref(0 TSRMLS_CC, E_WARNING,
++            "Must pass at least 6 arguments");
++        return FAILURE;
++    }
++
++    if(zend_parse_parameters(argc TSRMLS_CC, "ssssss", &key, &key_len, &is_reverse_order, &is_reverse_order_len, &min, &min_len,
++                                                       &max, &max_len, &limit, &limit_len, &prefix1, &prefix1_len
++                             )==FAILURE)
++    {
++        return FAILURE;
++    }
++
++    /* min and max must start with '(' or '[' 
++    if(min_len < 1 || max_len < 1 || (min[0] != '(' && min[0] != '[') ||
++       (max[0] != '(' && max[0] != '['))
++    {
++        php_error_docref(0 TSRMLS_CC, E_WARNING,
++            "min and max arguments must start with '[' or '('");
++        return FAILURE;
++    } */
++
++    /* Prefix key */
++    key_free = redis_key_prefix(redis_sock, &key, &key_len);
++
++    *cmd_len = redis_cmd_format_static(cmd, kw, "ssssss", key, key_len, is_reverse_order, is_reverse_order_len, min, 
++                 min_len, max, max_len, limit, limit_len, prefix1, prefix1_len);
++
++    /* Pick our slot */
++    CMD_SET_SLOT(slot,key,key_len);
++
++    /* Free key if we prefixed */
++    if(key_free) efree(key);
++
++    return SUCCESS;
++}
++
+ /* ZRANGEBYLEX/ZREVRANGEBYLEX */
+ int redis_zrangebylex_cmd(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock,
+                           char *kw, char **cmd, int *cmd_len, short *slot,
