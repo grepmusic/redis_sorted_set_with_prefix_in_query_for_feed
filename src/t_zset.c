@@ -3326,6 +3326,8 @@ void genericZrangebylexinCommand(redisClient *c) {
             zskiplist *zsl = zs->zsl;
             zskiplistNode *ln;
 
+            // if values = {"b01", "b07", "c02", "c08"}, prefix is {"d", "e"}
+
             /* If reversed, get the last node in range as starting point. */
             if (reverse) {
 //                ln = zslLastInLexRange(zsl,&range);
@@ -3340,7 +3342,8 @@ void genericZrangebylexinCommand(redisClient *c) {
 
             /* No "first" element in the specified interval. */
             if (ln == NULL) {
-                break;
+                continue;
+//                break;
             }
 
             /* We don't know in advance how many matching elements there are in the
