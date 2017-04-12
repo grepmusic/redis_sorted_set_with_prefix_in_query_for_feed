@@ -3172,8 +3172,8 @@ void genericZrangebylexinCommand(redisClient *c) {
     robj **pprefix = c->argv + 6;
     size_t prefix_len = sdslen((sds)pprefix[0]->ptr);
     size_t minlen = sdslen((sds)c->argv[minidx]->ptr), maxlen = sdslen((sds)c->argv[maxidx]->ptr), value_score_max_len = ((minlen < maxlen) ? maxlen : minlen);
-    limit = atoi(c->argv[5]->ptr); // TODO why limit == 0 make redis server crash ???
-    limit = limit > 0 ? limit : -1;
+    limit = atoi(c->argv[5]->ptr);
+    limit = limit >= 0 ? limit : -1;
 
     sds first_prefix = (sds)pprefix[0]->ptr;
     // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
@@ -3200,6 +3200,12 @@ void genericZrangebylexinCommand(redisClient *c) {
     linkListNode* start_list_node = NULL;
     robj* zzlnobj = NULL;
 
+    /* We don't know in advance how many matching elements there are in the
+             * list, so we push this object that will represent the multi-bulk
+             * length in the output buffer, and will "fix" it later */
+    if(replylen == NULL) {
+        replylen = addDeferredMultiBulkLength(c);
+    }
     for(int i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
@@ -3239,13 +3245,6 @@ void genericZrangebylexinCommand(redisClient *c) {
             /* Get score pointer for the first element. */
             redisAssertWithInfo(c,zobj,eptr != NULL);
             sptr = ziplistNext(zl,eptr);
-
-            /* We don't know in advance how many matching elements there are in the
-             * list, so we push this object that will represent the multi-bulk
-             * length in the output buffer, and will "fix" it later */
-            if(replylen == NULL) {
-                replylen = addDeferredMultiBulkLength(c);
-            }
 
 //            /* If there is an offset, just traverse the number of elements without
 //             * checking the score because that is done in the next loop. */
@@ -3454,10 +3453,12 @@ void genericZrangebylexinCommand(redisClient *c) {
 
 //    redisLog(REDIS_WARNING,"------ %s:%d rangelen=%d", __FILE__, __LINE__, rangelen);
 
-    if(! rangelen) {
-        addReply(c, shared.emptymultibulk);
-        return;
-    }
+//    if(! rangelen) {
+//        printf("rangelen=%d\n", rangelen);
+//        addReply(c, shared.emptymultibulk);
+//        return;
+//    }
+//    printf("rangelen=%d\n", rangelen);
 
     setDeferredMultiBulkLength(c, replylen, rangelen);
 }
