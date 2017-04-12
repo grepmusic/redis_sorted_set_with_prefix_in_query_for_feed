@@ -3443,7 +3443,7 @@ void genericZrangebylexinCommand(redisClient *c) {
             break;
         }
         head = start_list_node;
-    } while(--limit);
+    } while(--limit); // memory leak
 
     zfree(min_prefix);
     min_prefix = NULL;
