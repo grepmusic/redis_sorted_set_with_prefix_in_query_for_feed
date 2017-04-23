@@ -743,7 +743,7 @@ zskiplistNode *zslFirstInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zs
     return x;
 }
 
-zskiplistNode *ZslLastInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zskiplistNode** visitedNodes) {
+zskiplistNode *zslLastInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zskiplistNode** visitedNodes) {
     zskiplistNode *x;
     int i;
 
@@ -3176,8 +3176,9 @@ void genericZrangebylexinCommand(redisClient *c) {
     limit = limit >= 0 ? limit : -1;
 
     sds first_prefix = (sds)pprefix[0]->ptr;
+    int i, j;
     // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
-    for(int i = 1; i < prefix_count; i++) {
+    for(i = 1; i < prefix_count; i++) {
         if(sdslen((sds)pprefix[i]->ptr) != prefix_len || sdscmp(first_prefix, (sds)pprefix[i]->ptr) >= 0) {
             zslFreeLexRange(&range);
             addReplyError(c,"asc_prefixes must be with the same length and lexical memcmp(asc_prefixes[i-1], asc_prefixes[i]) < 0 for 'ZRANGEBYLEXIN' command");
@@ -3191,7 +3192,7 @@ void genericZrangebylexinCommand(redisClient *c) {
     unsigned char* last_eptr = NULL;
 //    listNode** last_list_node = zcalloc(prefix_count * sizeof(listNode*));
 
-    #define NODE_POOL_SIZE 1024
+    #define NODE_POOL_SIZE 2048 // 2048 * 16 = 32KB for 64bit OS
     linkListNode node_pool[NODE_POOL_SIZE] = {0}; // node pool to avoid z*alloc function call
     int node_pool_index = 0;
 
@@ -3206,7 +3207,7 @@ void genericZrangebylexinCommand(redisClient *c) {
     if(replylen == NULL) {
         replylen = addDeferredMultiBulkLength(c);
     }
-    for(int i = 0; i < prefix_count; i++) {
+    for(i = 0; i < prefix_count; i++) {
 
         long the_limit = limit;
 
@@ -3257,6 +3258,7 @@ void genericZrangebylexinCommand(redisClient *c) {
 //            }
 
             start_list_node = head;
+            j = 0;
             while (eptr && the_limit--) {
                 /* Abort when the node is no longer in range. */
                 if (reverse) {
@@ -3282,6 +3284,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                         if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len) <= 0) {
                             break;
                         }
+                        ++j;
                         start_list_node = start_list_node->next;
                     }
                 } else {
@@ -3289,8 +3292,13 @@ void genericZrangebylexinCommand(redisClient *c) {
                         if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len) >= 0) {
                             break;
                         }
+                        ++j;
                         start_list_node = start_list_node->next;
                     }
+                }
+
+                if(limit > 0 && j > limit) {
+                    break;
                 }
 
 //                printf("the_limit=%ld, head=%p, start_list_node=%p, ln=%p, ln->obj=%p, ln->obj->ptr = %p, ln->obj->ptr content:",
@@ -3309,6 +3317,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                 tmp->value = zzlnobj; // sdscpy(ln->obj->ptr);
                 tmp->next = start_list_node->next;
                 start_list_node->next = tmp;
+                ++j;
                 start_list_node = tmp;
 
                 /* Move to next node */
@@ -3330,8 +3339,9 @@ void genericZrangebylexinCommand(redisClient *c) {
             /* If reversed, get the last node in range as starting point. */
             if (reverse) {
 //                ln = zslLastInLexRange(zsl,&range);
-                ln = ZslLastInLexRangeByLast(zsl, &range, visitedNodes);
+                ln = zslLastInLexRangeByLast(zsl, &range, visitedNodes);
             } else {
+                // first element that in [prefix1 + min, prefix1 + max]
                 ln = zslFirstInLexRangeByLast(zsl, &range, visitedNodes);
 //                for(int j = 0; j < ZSKIPLIST_MAXLEVEL; ++j) {
 //                    redisLog(REDIS_WARNING,"------ %s:%d  visitedNodes[%d]=%p", __FILE__, __LINE__, j, (void*)visitedNodes[j]);
@@ -3348,9 +3358,9 @@ void genericZrangebylexinCommand(redisClient *c) {
             /* We don't know in advance how many matching elements there are in the
              * list, so we push this object that will represent the multi-bulk
              * length in the output buffer, and will "fix" it later */
-            if(replylen == NULL) {
-                replylen = addDeferredMultiBulkLength(c);
-            }
+//            if(replylen == NULL) {
+//                replylen = addDeferredMultiBulkLength(c);
+//            }
 
             /* If there is an offset, just traverse the number of elements without
              * checking the score because that is done in the next loop. */
@@ -3363,6 +3373,10 @@ void genericZrangebylexinCommand(redisClient *c) {
 //            }
 
             start_list_node = head;
+            j = 0;
+            printf("i=%d\n", i);
+            dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+
             while (ln && the_limit--) {
                 /* Abort when the node is no longer in range. */
                 if (reverse) {
@@ -3382,37 +3396,57 @@ void genericZrangebylexinCommand(redisClient *c) {
                     start_list_node = result_list->head;
                 }*/
 
+                int r;
                 if(reverse) {
                     while(start_list_node->next != NULL) {
-                        if(compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len) <= 0) {
+                        if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len)) <= 0) {
                             break;
                         }
+                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
+                        dumpHex(((robj*)(start_list_node->next->value))->ptr, sdslen(((robj*)(start_list_node->next->value))->ptr));
+                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+
+                        ++j;
                         start_list_node = start_list_node->next;
                     }
                 } else {
                     while(start_list_node->next != NULL) {
-                        if(compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len) >= 0) {
+                        if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len)) >= 0) {
                             break;
                         }
+                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
+                        dumpHex(((robj*)(start_list_node->next->value))->ptr, sdslen(((robj*)(start_list_node->next->value))->ptr));
+                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+
+                        ++j;
                         start_list_node = start_list_node->next;
                     }
                 }
 
 //                printf("the_limit=%ld, head=%p, start_list_node=%p, ln=%p, ln->obj=%p, ln->obj->ptr = %p, ln->obj->ptr content:",
 //                       the_limit, head, start_list_node, ln, ln->obj, ln->obj->ptr);
-//                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
-//                printf("\n");
+                printf("hi\n");
+                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+                // printf("\n");
+
+                printf("i=%d, j=%d, limit=%d\n", i, j, limit);
+                if(limit > 0 && j >= limit) {
+                    printf("break early\n");
+                    break;
+                }
 
                 linkListNode* tmp; // = zmalloc(sizeof(*tmp));
                 if(node_pool_index < NODE_POOL_SIZE) {
                     tmp = (linkListNode*)&node_pool[node_pool_index++];
                 } else {
                     tmp = zmalloc(sizeof(*tmp));
+//                    printf("zmalloc tmp = %p\n", tmp);
                 }
 
                 tmp->value = ln->obj; // sdscpy(ln->obj->ptr);
                 tmp->next = start_list_node->next;
                 start_list_node->next = tmp;
+                ++j;
                 start_list_node = tmp;
 
                 /* Move to next node */
@@ -3422,28 +3456,39 @@ void genericZrangebylexinCommand(redisClient *c) {
                     ln = ln->level[0].forward;
                 }
             }
+            if(! reverse) {
+//                visitedNodes[0] = ln; // TODO optimize it
+            }
         } else {
             redisPanic("Unknown sorted set encoding");
         }
     }
 
-    do {
+    i = 0;
+    while(1) {
         start_list_node = head->next;
-        if(rangelen >= NODE_POOL_SIZE) {
+        if(++i > NODE_POOL_SIZE) {
+//            printf("zfree head = %p\n", head);
             zfree(head);
         }
+
         if(start_list_node != NULL) {
-            rangelen++;
-//            printf("reply node=%p, value=%p\n", start_list_node, start_list_node->value);
-            addReplyBulk(c, start_list_node->value);
+            if(limit != 0) {
+                rangelen++;
+//                printf("reply node=%p, value=%p\n", start_list_node, start_list_node->value);
+                addReplyBulk(c, start_list_node->value);
+                --limit;
+            }
+
             if((zobj->encoding == REDIS_ENCODING_ZIPLIST)) {
                 decrRefCount((robj*)(start_list_node->value));
             }
         } else {
             break;
         }
+
         head = start_list_node;
-    } while(--limit); // memory leak
+    }
 
     zfree(min_prefix);
     min_prefix = NULL;
@@ -3601,7 +3646,7 @@ void genericZrangebylex2CommandOld(redisClient *c, int reverse) {
             /* If reversed, get the last node in range as starting point. */
             if (reverse) {
 //                ln = zslLastInLexRange(zsl,&range);
-                ln = ZslLastInLexRangeByLast(zsl, &range, visitedNodes);
+                ln = zslLastInLexRangeByLast(zsl, &range, visitedNodes);
             } else {
                 ln = zslFirstInLexRangeByLast(zsl, &range, visitedNodes);
 //                for(int j = 0; j < ZSKIPLIST_MAXLEVEL; ++j) {
