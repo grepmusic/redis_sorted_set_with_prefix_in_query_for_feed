@@ -1021,6 +1021,30 @@ int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
     return 1;
 }
 
+// range is invalid: -3
+//
+int zzlCompareInLexRange(unsigned char *zl, zlexrangespec *range) {
+    unsigned char *p;
+
+    /* Test for ranges that will always be empty. */
+    if (compareStringObjectsForLexRange(range->min,range->max) > 1 ||
+        (compareStringObjects(range->min,range->max) == 0 &&
+         (range->minex || range->maxex)))
+        return -3;
+
+    p = ziplistIndex(zl,-2); /* Last element. */
+    if (p == NULL) return 2;
+    if (!zzlLexValueGteMin(p,range))
+        return 0;
+
+    p = ziplistIndex(zl,0); /* First element. */
+    redisAssert(p != NULL);
+    if (!zzlLexValueLteMax(p,range))
+        return 0;
+
+    return 1;
+}
+
 /* Find pointer to the first element contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
 unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range) {
@@ -3374,8 +3398,8 @@ void genericZrangebylexinCommand(redisClient *c) {
 
             start_list_node = head;
             j = 0;
-            printf("i=%d\n", i);
-            dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+//            printf("i=%d\n", i);
+//            dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 
             while (ln && the_limit--) {
                 /* Abort when the node is no longer in range. */
@@ -3402,9 +3426,9 @@ void genericZrangebylexinCommand(redisClient *c) {
                         if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len)) <= 0) {
                             break;
                         }
-                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
-                        dumpHex(((robj*)(start_list_node->next->value))->ptr, sdslen(((robj*)(start_list_node->next->value))->ptr));
-                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+//                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
+//                        dumpHex(((robj*)(start_list_node->next->value))->ptr, sdslen(((robj*)(start_list_node->next->value))->ptr));
+//                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 
                         ++j;
                         start_list_node = start_list_node->next;
@@ -3414,24 +3438,25 @@ void genericZrangebylexinCommand(redisClient *c) {
                         if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len)) >= 0) {
                             break;
                         }
-                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
-                        dumpHex(((robj*)(start_list_node->next->value))->ptr, sdslen(((robj*)(start_list_node->next->value))->ptr));
-                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+//                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
+//                        dumpHex(((robj*)(start_list_node->next->value))->ptr, sdslen(((robj*)(start_list_node->next->value))->ptr));
+//                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 
                         ++j;
                         start_list_node = start_list_node->next;
                     }
+                    visitedNodes[0] = ln;
                 }
 
 //                printf("the_limit=%ld, head=%p, start_list_node=%p, ln=%p, ln->obj=%p, ln->obj->ptr = %p, ln->obj->ptr content:",
 //                       the_limit, head, start_list_node, ln, ln->obj, ln->obj->ptr);
-                printf("hi\n");
-                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+//                printf("hi\n");
+//                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
                 // printf("\n");
 
-                printf("i=%d, j=%d, limit=%d\n", i, j, limit);
+//                printf("i=%d, j=%d, limit=%d\n", i, j, limit);
                 if(limit > 0 && j >= limit) {
-                    printf("break early\n");
+//                    printf("break early\n");
                     break;
                 }
 
@@ -3455,9 +3480,6 @@ void genericZrangebylexinCommand(redisClient *c) {
                 } else {
                     ln = ln->level[0].forward;
                 }
-            }
-            if(! reverse) {
-//                visitedNodes[0] = ln; // TODO optimize it
             }
         } else {
             redisPanic("Unknown sorted set encoding");
