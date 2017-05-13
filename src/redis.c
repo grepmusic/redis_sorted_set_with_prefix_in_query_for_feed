@@ -187,7 +187,7 @@ struct redisCommand redisCommandTable[] = {
     {
       "zrangebylexin", // name: a string representing the command name.
       zrangebylexinCommand, // function: pointer to the C function implementing the command.
-      -7, // arity: number of arguments, it is possible to use -N to say >= N
+      -8, // arity: number of arguments, it is possible to use -N to say >= N
       "r", // sflags: command flags as string. See below for a table of flags.
       0, // flags: flags as bitmask. Computed by Redis using the 'sflags' field.
       NULL, // get_keys_proc: an optional function to get key arguments from a command. This is only used when the following three fields are not enough to specify what arguments are keys.

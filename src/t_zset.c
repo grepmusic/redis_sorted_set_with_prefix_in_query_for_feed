@@ -3141,12 +3141,12 @@ typedef struct linkListNode {
 } linkListNode;
 
 // command usage:
-// zrangebylexin key is_reverse_order min_lexical_value max_lexical_value limit asc_prefix1 [ asc_prefix2 ... asc_prefixN ]
+// zrangebylexin key is_reverse_order min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 ... asc_prefixN ]
 void genericZrangebylexinCommand(redisClient *c) {
     zlexrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
-    long offset = 0, limit = -1;
+    long offset = 0, limit = -1, total_limit;
     unsigned long rangelen = 0;
     void *replylen = NULL;
     int minidx, maxidx, reverse;
@@ -3191,13 +3191,16 @@ void genericZrangebylexinCommand(redisClient *c) {
     }
 
     // max = prefixN + max_score_value
-    // prefix start at pos 5
-    int prefix_count = c->argc - 6;
-    robj **pprefix = c->argv + 6;
+    // prefix start at pos 6
+    int prefix_count = c->argc - 7;
+    robj **pprefix = c->argv + 7;
     size_t prefix_len = sdslen((sds)pprefix[0]->ptr);
     size_t minlen = sdslen((sds)c->argv[minidx]->ptr), maxlen = sdslen((sds)c->argv[maxidx]->ptr), value_score_max_len = ((minlen < maxlen) ? maxlen : minlen);
-    limit = atoi(c->argv[5]->ptr);
+    offset = atoi(c->argv[5]->ptr);
+    offset = offset >= 0 ? offset : 0;
+    limit = atoi(c->argv[6]->ptr);
     limit = limit >= 0 ? limit : -1;
+    total_limit = limit >= 0 ? (offset + limit) : -1;
 
     sds first_prefix = (sds)pprefix[0]->ptr;
     int i, j;
@@ -3233,7 +3236,7 @@ void genericZrangebylexinCommand(redisClient *c) {
     }
     for(i = 0; i < prefix_count; i++) {
 
-        long the_limit = limit;
+        long the_limit = total_limit;
 
         if(invert) {
             memcpy(min_prefix, (void*)pprefix[prefix_count - 1 - i]->ptr, prefix_len);
@@ -3321,7 +3324,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                     }
                 }
 
-                if(limit > 0 && j > limit) {
+                if(total_limit > 0 && j > total_limit) {
                     break;
                 }
 
@@ -3455,7 +3458,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                 // printf("\n");
 
 //                printf("i=%d, j=%d, limit=%d\n", i, j, limit);
-                if(limit > 0 && j >= limit) {
+                if(total_limit > 0 && j >= total_limit) {
 //                    printf("break early\n");
                     break;
                 }
@@ -3495,11 +3498,10 @@ void genericZrangebylexinCommand(redisClient *c) {
         }
 
         if(start_list_node != NULL) {
-            if(limit != 0) {
+            if(i > offset && (limit <= 0 || (i - offset - 1) < limit)) {
                 rangelen++;
 //                printf("reply node=%p, value=%p\n", start_list_node, start_list_node->value);
                 addReplyBulk(c, start_list_node->value);
-                --limit;
             }
 
             if((zobj->encoding == REDIS_ENCODING_ZIPLIST)) {
