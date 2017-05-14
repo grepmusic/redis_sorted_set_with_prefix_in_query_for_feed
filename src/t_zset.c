@@ -3124,13 +3124,18 @@ int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
         bstr = bufb;
     }
     int cmp;
-    if(alen <= offset || blen <= offset) {
-        return alen - blen;
+    minlen = (alen < blen) ? alen: blen;
+
+    if(minlen > offset) {
+        cmp = memcmp(astr + offset,bstr + offset,minlen - offset);
+//    dumpCmp(astr, alen, bstr, blen, cmp);
+        if(cmp == 0 && alen == blen) { // postfixes are equal
+            return memcmp(astr, bstr, offset);
+        }
+    } else {
+        cmp = memcmp(astr, bstr, minlen);
     }
 
-    minlen = (alen < blen) ? alen: blen;
-    cmp = memcmp(astr + offset,bstr + offset,minlen - offset);
-//    dumpCmp(astr, alen, bstr, blen, cmp);
     if (cmp == 0) return alen-blen;
     return cmp;
 }
