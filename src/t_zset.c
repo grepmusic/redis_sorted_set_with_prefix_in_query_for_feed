@@ -3207,11 +3207,10 @@ void genericZrangebylexinCommand(redisClient *c) {
     limit = limit >= 0 ? limit : -1;
     total_limit = limit >= 0 ? (offset + limit) : -1;
 
-    sds first_prefix = (sds)pprefix[0]->ptr;
     int i, j;
     // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
     for(i = 1; i < prefix_count; i++) {
-        if(sdslen((sds)pprefix[i]->ptr) != prefix_len || sdscmp(first_prefix, (sds)pprefix[i]->ptr) >= 0) {
+        if(sdslen((sds)pprefix[i]->ptr) != prefix_len || sdscmp((sds)pprefix[i-1]->ptr, (sds)pprefix[i]->ptr) >= 0) {
             zslFreeLexRange(&range);
             addReplyError(c,"asc_prefixes must be with the same length and lexical memcmp(asc_prefixes[i-1], asc_prefixes[i]) < 0 for 'ZRANGEBYLEXIN' command");
             return;
@@ -3243,10 +3242,10 @@ void genericZrangebylexinCommand(redisClient *c) {
 
         long the_limit = total_limit;
 
-        if(invert) {
+        if(invert) { // from high to low
             memcpy(min_prefix, (void*)pprefix[prefix_count - 1 - i]->ptr, prefix_len);
             memcpy(max_prefix, (void*)pprefix[prefix_count - 1 - i]->ptr, prefix_len);
-        } else {
+        } else { // from low to high
             memcpy(min_prefix, (void*)pprefix[i]->ptr, prefix_len);
             memcpy(max_prefix, (void*)pprefix[i]->ptr, prefix_len);
         }
