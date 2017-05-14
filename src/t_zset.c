@@ -3289,9 +3289,15 @@ void genericZrangebylexinCommand(redisClient *c) {
             while (eptr && the_limit--) {
                 /* Abort when the node is no longer in range. */
                 if (reverse) {
-                    if (!zzlLexValueGteMin3(eptr,&range, &zzlnobj)) break;
+                    if (!zzlLexValueGteMin3(eptr,&range, &zzlnobj)) {
+                        decrRefCount(zzlnobj);
+                        break;
+                    }
                 } else {
-                    if (!zzlLexValueLteMax3(eptr,&range, &zzlnobj)) break;
+                    if (!zzlLexValueLteMax3(eptr,&range, &zzlnobj)) {
+                        decrRefCount(zzlnobj);
+                        break;
+                    }
                 }
 
                 /* We know the element exists, so ziplistGet should always
@@ -3325,6 +3331,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                 }
 
                 if(total_limit > 0 && j > total_limit) {
+                    decrRefCount(zzlnobj);
                     break;
                 }
 

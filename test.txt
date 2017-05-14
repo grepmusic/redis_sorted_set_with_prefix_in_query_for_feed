@@ -2,8 +2,8 @@ cd  /home/vagrant/redis_feed/src; killall redis-server; make; /home/vagrant/redi
 
 
 # zadd k 0 a01 0 a07 0 b06 0 b04 0 b03 0 b02 0 c05 0 c10 0 c11 0 d00
-# zrangebylexin k 1 - + 3 a b c
-# zrangebylexin k 0 - + 3 a b c
+# zrangebylexin k 1 - + 0 3 a b c
+# zrangebylexin k 0 - + 0 3 a b c
 # -rlptg o D
 
 # zadd k1 0 a01 0 a03 0 a02 0 b06 0 b04 0 b07 0 c05 0 c10 0 c11 0 d00
