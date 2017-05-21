@@ -3420,6 +3420,10 @@ void genericZrangebylexinCommand(redisClient *c) {
                             break;
                         }
                         ++j;
+                        if(total_limit > 0 && j >= total_limit) {
+//                    printf("break early\n");
+                            break;
+                        }
                         start_list_node = start_list_node->next;
                     }
                 } else {
@@ -3428,6 +3432,10 @@ void genericZrangebylexinCommand(redisClient *c) {
                             break;
                         }
                         ++j;
+                        if(total_limit > 0 && j >= total_limit) {
+//                    printf("break early\n");
+                            break;
+                        }
                         start_list_node = start_list_node->next;
                     }
                 }
@@ -3543,6 +3551,10 @@ void genericZrangebylexinCommand(redisClient *c) {
 //                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 
                         ++j;
+                        if(total_limit > 0 && j >= total_limit) {
+//                    printf("break early\n");
+                            break;
+                        }
                         start_list_node = start_list_node->next;
                     }
                 } else {
@@ -3555,6 +3567,10 @@ void genericZrangebylexinCommand(redisClient *c) {
 //                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 
                         ++j;
+                        if(total_limit > 0 && j >= total_limit) {
+//                    printf("break early\n");
+                            break;
+                        }
                         start_list_node = start_list_node->next;
                     }
                     visitedNodes[0] = ln;
