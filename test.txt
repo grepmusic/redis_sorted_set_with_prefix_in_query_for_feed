@@ -13,16 +13,99 @@ zadd k2 0 a01 0 a07
 
 zadd k3 0 a01 0 b01 0 b02 0 b03 0 c02 0 c03 0 d01
 
-zrangebylexin k3 0e [b01 [c02 0 3 a b c d
+zrangebylexin k3 <F [b01 [c02 0 3 a b c d
 
 [a01, a02]   --> (a01, a02]
 [b01, b02]   --> [b01, b02]
 [c01, c02]   --> [c01, c02]
 [d01, d02]   --> [d01, d02)
 
-zrangebylexin k3 0e [b01 + 0 3 a b c d
+zrangebylexin k3 <F [b01 + 0 3 a b c d
 
 [a01, b01)   --> (a01, b01)
 [b01, c01)   --> [b01, c01)
 [c01, d01)   --> [c01, d01)
 [d01, e01)   --> [d01, e01)
+
+
+
+
+
+
+
+zrangebylexin k3 0 {b01 {c02 0 3 a b c d
+
+[a01, a02]   --> (a01, a02]
+[b01, b02]   --> [b01, b02]
+[c01, c02]   --> [c01, c02]
+[d01, d02]   --> [d01, d02)
+
+zrangebylexin k3 0 {b01 + 0 3 a b c d
+
+[a01, b01)   --> (a01, b01)
+[b01, c01)   --> [b01, c01)
+[c01, d01)   --> [c01, d01)
+[d01, e01)   --> [d01, e01)
+
+
+zrangebylexin k3 0 <b01 + 0 3 a b c d
+[a01, b01)   --> (a01, b01)
+[b01, c01)   --> (b01, c01)
+[c01, d01)   --> [c01, d01)
+[d01, e01)   --> [d01, e01)
+
+
+
+
+
+zrangebylexin k3 1 {b01 {c02 0 3 a b c d
+
+[a01, a02]   --> (a01, a02]
+[b01, b02]   --> [b01, b02]
+[c01, c02]   --> [c01, c02]
+[d01, d02]   --> [d01, d02)
+
+zrangebylexin k3 1 {b01 + 0 3 a b c d
+
+[a01, b01)   --> (a01, b01)
+[b01, c01)   --> [b01, c01)
+[c01, d01)   --> [c01, d01)
+[d01, e01)   --> [d01, e01)
+
+
+zrangebylexin k3 1 <b01 + 0 3 a b c d
+[a01, b01)   --> (a01, b01)
+[b01, c01)   --> (b01, c01)
+[c01, d01)   --> [c01, d01)
+[d01, e01)   --> [d01, e01)
+
+
+
+
+
+
+
+zadd k4 0 a01 0 a02 0 "a02\x00" 0 a03 0 "a03\x00" 0 a04 0 b01 0 b02 0 b03 0 b04 0 b05 0 b06 0 c01 0 c02 0 c03 0 c033 0 "c03\x00" 0 c003 0 c04 0 c05 0 d01 0 d02 0 d03
+
+zrevrangebylex k4 + -
+zrangebylexin k4 Fa (a03 + 0 3 a b c d
+zrangebylexin k4 Fa "[a03\x00" "(c03\x00" 0 -3 a b c d
+zrangebylexin k4 Fa "[a03\x00" "[b05" 0 -3 a b c d
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

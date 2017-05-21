@@ -507,7 +507,7 @@ int zslParseLexRangeItem(robj *item, robj **dest, int *ex) {
     }
 }
 
-int zslParseLexRangeItemWithPrefix(robj *item, robj **dest, int *ex, char* prefix, size_t prefix_len) {
+int zslParseLexRangeItemWithPrefix(robj *item, robj **dest, int *ex, char* prefix, size_t prefix_len, size_t prefix_filter_len) {
     char *c = (char*)item->ptr;
     size_t score_value_len;
     char tmp;
@@ -543,15 +543,15 @@ int zslParseLexRangeItemWithPrefix(robj *item, robj **dest, int *ex, char* prefi
         return REDIS_OK;
     case '(':
         score_value_len = sdslen(c) - 1;
-        memcpy(prefix + prefix_len, c+1, score_value_len);
+        memcpy(prefix + prefix_len, c+1+prefix_filter_len, score_value_len - prefix_filter_len);
         *ex = 1;
-        *dest = createStringObject(prefix, prefix_len + score_value_len);
+        *dest = createStringObject(prefix, prefix_len + (score_value_len - prefix_filter_len));
         return REDIS_OK;
     case '[':
         score_value_len = sdslen(c) - 1;
-        memcpy(prefix + prefix_len, c+1, score_value_len);
+        memcpy(prefix + prefix_len, c+1+prefix_filter_len, score_value_len - prefix_filter_len);
         *ex = 0;
-        *dest = createStringObject(prefix, prefix_len + score_value_len);
+        *dest = createStringObject(prefix, prefix_len + (score_value_len - prefix_filter_len));
         return REDIS_OK;
     default:
         return REDIS_ERR;
@@ -580,15 +580,15 @@ static int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
     }
 }
 
-static int zslParseLexRangeWithPrefix(robj *min, robj *max, zlexrangespec *spec, char* min_prefix, char* max_prefix, size_t prefix_len) {
+static int zslParseLexRangeWithPrefix(robj *min, robj *max, zlexrangespec *spec, char* min_prefix, char* max_prefix, size_t prefix_len, size_t min_prefix_filter_len, size_t max_prefix_filter_len) {
     /* The range can't be valid if objects are integer encoded.
      * Every item must start with ( or [. */
     if (min->encoding == REDIS_ENCODING_INT ||
         max->encoding == REDIS_ENCODING_INT) return REDIS_ERR;
 
     spec->min = spec->max = NULL;
-    if (zslParseLexRangeItemWithPrefix(min, &spec->min, &spec->minex, min_prefix, prefix_len) == REDIS_ERR ||
-        zslParseLexRangeItemWithPrefix(max, &spec->max, &spec->maxex, max_prefix, prefix_len) == REDIS_ERR) {
+    if (zslParseLexRangeItemWithPrefix(min, &spec->min, &spec->minex, min_prefix, prefix_len, min_prefix_filter_len) == REDIS_ERR ||
+        zslParseLexRangeItemWithPrefix(max, &spec->max, &spec->maxex, max_prefix, prefix_len, max_prefix_filter_len) == REDIS_ERR) {
         if (spec->min) decrRefCount(spec->min);
         if (spec->max) decrRefCount(spec->max);
         return REDIS_ERR;
@@ -701,10 +701,10 @@ zskiplistNode *zslFirstInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zs
     int i;
 
 //    redisLog(REDIS_WARNING,"------ %s:%d range=%p", __FILE__, __LINE__, range);
-    redisLog(REDIS_WARNING,"------ %s:%d zslFirstInLexRangeByLast range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
+//    redisLog(REDIS_WARNING,"------ %s:%d zslFirstInLexRangeByLast range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
     /* If everything is out of range, return early. */
     if (!zslIsInLexRange(zsl,range)) return NULL;
-    redisLog(REDIS_WARNING,"------ %s:%d zslFirstInLexRangeByLast END range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
+//    redisLog(REDIS_WARNING,"------ %s:%d zslFirstInLexRangeByLast END range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
 
     if(visitedNodes[zsl->level - 1] != NULL) {
         char changed = 0;
@@ -719,7 +719,7 @@ zskiplistNode *zslFirstInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zs
                 x = x->level[i].forward;
                 changed = 1;
             }
-            redisLog(REDIS_WARNING,"------ %s:%d i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
+//            redisLog(REDIS_WARNING,"------ %s:%d i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
             visitedNodes[i] = x;
         }
     } else {
@@ -748,10 +748,10 @@ zskiplistNode *zslLastInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zsk
     int i;
 
 //    redisLog(REDIS_WARNING,"------ %s:%d range=%p", __FILE__, __LINE__, range);
-    redisLog(REDIS_WARNING,"------ %s:%d ZslNodeLastInLexRangeByLast range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
+//    redisLog(REDIS_WARNING,"------ %s:%d ZslNodeLastInLexRangeByLast range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
     /* If everything is out of range, return early. */
     if (!zslIsInLexRange(zsl,range)) return NULL;
-    redisLog(REDIS_WARNING,"------ %s:%d ZslNodeLastInLexRangeByLast END range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
+//    redisLog(REDIS_WARNING,"------ %s:%d ZslNodeLastInLexRangeByLast END range min=%c%s, max=%c%s", __FILE__, __LINE__, range->minex ? '(' : '[', range->min->ptr, range->maxex ? '(' : '[', range->max->ptr);
 
     if(visitedNodes[zsl->level - 1] != NULL) {
         char changed = 0;
@@ -766,7 +766,7 @@ zskiplistNode *zslLastInLexRangeByLast(zskiplist *zsl, zlexrangespec *range, zsk
                 x = x->level[i].forward;
                 changed = 1;
             }
-            redisLog(REDIS_WARNING,"------ ZslNodeLastInLexRangeByLast %s:%d i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
+//            redisLog(REDIS_WARNING,"------ ZslNodeLastInLexRangeByLast %s:%d i=%d, x=%p", __FILE__, __LINE__, i, (void*)x);
             visitedNodes[i] = x;
         }
     } else {
@@ -3063,7 +3063,7 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
 void dumpHex(char* addr, size_t size) {
     printf("addr=%p, content:", addr);
     for(size_t i = 0; i < size; ++i) {
-        if(addr[i] >= '0' && addr[i] <= '9' || addr[i] >= 'a' && addr[i] <= 'z' || addr[i] >= 'A' && addr[i] <= 'Z') {
+        if((addr[i] >= '0' && addr[i] <= '9') || (addr[i] >= 'a' && addr[i] <= 'z') || (addr[i] >= 'A' && addr[i] <= 'Z')) {
             printf(" *%c", addr[i]);
         } else {
             printf(" %02x", addr[i]);
@@ -3101,7 +3101,7 @@ static int zzlLexValueLteMax3(unsigned char *p, zlexrangespec *spec, robj** out_
     return res;
 }
 
-int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
+int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset, int full_lex_range_mode) {
     redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
@@ -3129,11 +3129,11 @@ int compareStringObjectsWithOffsets(robj *a, robj *b, size_t offset) {
     if(minlen > offset) {
         cmp = memcmp(astr + offset,bstr + offset,minlen - offset);
 //    dumpCmp(astr, alen, bstr, blen, cmp);
-        if(cmp == 0 && alen == blen) { // postfixes are equal
+        if(cmp == 0 && alen == blen && full_lex_range_mode) { // postfixes are equal
             return memcmp(astr, bstr, offset);
         }
     } else {
-        cmp = memcmp(astr, bstr, minlen);
+        cmp = full_lex_range_mode ? memcmp(astr, bstr, minlen) : 0;
     }
 
     if (cmp == 0) return alen-blen;
@@ -3145,8 +3145,22 @@ typedef struct linkListNode {
     struct linkListNode* next;
 } linkListNode;
 
+static inline int compareTwoStrings(char* s1, int n1, char* s2, int n2) {
+    int r;
+    if(n1 == n2) {
+        return memcmp(s1, s2, n1);
+    }
+    if(n1 > n2) { // ab abc
+        r = memcmp(s1, s2, n2);
+        return r == 0 ? 1 : r;
+    }
+
+    r = memcmp(s1, s2, n1);
+    return r == 0 ? -1 : r;
+}
+
 // command usage:
-// zrangebylexin key is_reverse_order min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 ... asc_prefixN ]
+// zrangebylexin key reverse_order_mode min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 ... asc_prefixN ]
 void genericZrangebylexinCommand(redisClient *c) {
     zlexrangespec range;
     robj *key = c->argv[1];
@@ -3154,10 +3168,13 @@ void genericZrangebylexinCommand(redisClient *c) {
     long offset = 0, limit = -1, total_limit;
     unsigned long rangelen = 0;
     void *replylen = NULL;
-    int minidx, maxidx, reverse;
+    int minidx = 3, maxidx = 4, reverse = 1, full_lex_range_mode = 0;
+    char* reverse_order_mode = (sds)c->argv[2]->ptr;
+    size_t reverse_order_mode_len;
 
-    if(sdslen((sds)c->argv[2]->ptr) == 1) {
-        switch(*(char*)(c->argv[2]->ptr)) {
+    reverse_order_mode_len = sdslen((sds)reverse_order_mode);
+    if(reverse_order_mode_len >= 1) {
+        switch(reverse_order_mode[0]) {
             case '0': // not is_reverse_order
             case '+': // more and more
             case '<': // small to big
@@ -3165,22 +3182,27 @@ void genericZrangebylexinCommand(redisClient *c) {
             case 'a': // asc
                 reverse = 0;
                 break;
-            default:
-                reverse = 1;
+            case 'f':
+            case 'F':
+                full_lex_range_mode = 1;
                 break;
         }
-    } else {
-        reverse = 1;
+        if(reverse_order_mode_len >= 2) {
+            switch(reverse_order_mode[1]) {
+                case '0': // not is_reverse_order
+                case '+': // more and more
+                case '<': // small to big
+                case 'A': // ASC
+                case 'a': // asc
+                    reverse = 0;
+                    break;
+                case 'f':
+                case 'F':
+                    full_lex_range_mode = 1;
+                    break;
+            }
+        }
     }
-
-    /* Parse the range arguments. */
-//    if (reverse) {
-//        /* Range is given as [max,min] */
-//        maxidx = 3; minidx = 4;
-//    } else {
-        /* Range is given as [min,max] */
-        minidx = 3; maxidx = 4;
-//    }
 
     if (zslParseLexRange(c->argv[minidx],c->argv[maxidx],&range) != REDIS_OK) {
         addReplyError(c,"min or max not valid string range item");
@@ -3200,33 +3222,62 @@ void genericZrangebylexinCommand(redisClient *c) {
     int prefix_count = c->argc - 7;
     robj **pprefix = c->argv + 7;
     size_t prefix_len = sdslen((sds)pprefix[0]->ptr);
-    size_t minlen = sdslen((sds)c->argv[minidx]->ptr), maxlen = sdslen((sds)c->argv[maxidx]->ptr), value_score_max_len = ((minlen < maxlen) ? maxlen : minlen);
+    int i, j;
+    // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
+    for(i = 1; i < prefix_count; i++) {
+        if(prefix_len == 0 || sdslen((sds)pprefix[i]->ptr) != prefix_len || sdscmp((sds)pprefix[i-1]->ptr, (sds)pprefix[i]->ptr) >= 0) {
+            zslFreeLexRange(&range);
+            addReplyError(c,"asc_prefixes must be with the same length(> 0) and lexical memcmp(asc_prefixes[i-1], asc_prefixes[i]) < 0 for 'ZRANGEBYLEXIN' command");
+            return;
+        }
+    }
+
+    char* min_prefix_filter = NULL, * max_prefix_filter = NULL;
+    ssize_t min_prefix_filter_len = 0, max_prefix_filter_len = 0, min_prefix_filter_ex = 0, max_prefix_filter_ex = 0;
+
+    size_t minlen = sdslen((sds)c->argv[minidx]->ptr), maxlen = sdslen((sds)c->argv[maxidx]->ptr);
+    if(full_lex_range_mode) { // + - or [+prefix+postfix or (+prefix+postfix
+        if(((char*)c->argv[minidx]->ptr)[0] == '[' || ((char*)c->argv[minidx]->ptr)[0] == '(') {
+            min_prefix_filter = ((char*)c->argv[minidx]->ptr) + 1;
+            min_prefix_filter_ex = ((char*)c->argv[minidx]->ptr)[0] == '(';
+            if(minlen > prefix_len) {
+                minlen -= prefix_len;
+                min_prefix_filter_len = prefix_len;
+            } else {
+                min_prefix_filter_len = minlen - 1;
+                minlen = 1;
+            }
+        }
+        if(((char*)c->argv[maxidx]->ptr)[0] == '[' || ((char*)c->argv[maxidx]->ptr)[0] == '(') {
+            max_prefix_filter = ((char*)c->argv[maxidx]->ptr) + 1;
+            max_prefix_filter_ex = ((char*)c->argv[maxidx]->ptr)[0] == '(';
+            if(maxlen > prefix_len) {
+                maxlen -= prefix_len;
+                max_prefix_filter_len = prefix_len;
+            } else {
+                max_prefix_filter_len = maxlen - 1;
+                maxlen = 1;
+            }
+        }
+    }
+
     offset = atoi(c->argv[5]->ptr);
     offset = offset >= 0 ? offset : 0;
     limit = atoi(c->argv[6]->ptr);
     limit = limit >= 0 ? limit : -1;
     total_limit = limit >= 0 ? (offset + limit) : -1;
 
-    int i, j;
-    // prefix1 < prefix2 < ... < prefixN and strlen(prefix1) == strlen(prefix2) == ... == strlen(prefixN)
-    for(i = 1; i < prefix_count; i++) {
-        if(sdslen((sds)pprefix[i]->ptr) != prefix_len || sdscmp((sds)pprefix[i-1]->ptr, (sds)pprefix[i]->ptr) >= 0) {
-            zslFreeLexRange(&range);
-            addReplyError(c,"asc_prefixes must be with the same length and lexical memcmp(asc_prefixes[i-1], asc_prefixes[i]) < 0 for 'ZRANGEBYLEXIN' command");
-            return;
-        }
-    }
-
-    char* min_prefix = (char*)zmalloc(prefix_len + value_score_max_len), *max_prefix = (char*)zmalloc(prefix_len + value_score_max_len);
+    char* min_prefix = (char*)zmalloc(prefix_len + minlen), *max_prefix = (char*)zmalloc(prefix_len + maxlen);
     zskiplistNode* visitedNodes[ZSKIPLIST_MAXLEVEL] = {0};
     char invert = zobj->encoding == REDIS_ENCODING_ZIPLIST && reverse;
     unsigned char* last_eptr = NULL;
 //    listNode** last_list_node = zcalloc(prefix_count * sizeof(listNode*));
 
     #define NODE_POOL_SIZE 2048 // 2048 * 16 = 32KB for 64bit OS
-    linkListNode node_pool[NODE_POOL_SIZE] = {0}; // node pool to avoid z*alloc function call
+    linkListNode node_pool[NODE_POOL_SIZE]; // node pool to avoid z*alloc function call
     int node_pool_index = 0;
 
+    memset(node_pool, sizeof(node_pool), 0);
     linkListNode* head = (linkListNode*)&node_pool[node_pool_index++]; // zcalloc(sizeof(*head));
     head->next = head->value = NULL;
     linkListNode* start_list_node = NULL;
@@ -3241,21 +3292,68 @@ void genericZrangebylexinCommand(redisClient *c) {
     for(i = 0; i < prefix_count; i++) {
 
         long the_limit = total_limit;
+        char* current_prefix;
 
         if(invert) { // from high to low
-            memcpy(min_prefix, (void*)pprefix[prefix_count - 1 - i]->ptr, prefix_len);
-            memcpy(max_prefix, (void*)pprefix[prefix_count - 1 - i]->ptr, prefix_len);
+            current_prefix = pprefix[prefix_count - 1 - i]->ptr;
         } else { // from low to high
-            memcpy(min_prefix, (void*)pprefix[i]->ptr, prefix_len);
-            memcpy(max_prefix, (void*)pprefix[i]->ptr, prefix_len);
+            current_prefix = pprefix[i]->ptr;
         }
+        memcpy(min_prefix, (void*)current_prefix, prefix_len);
+        memcpy(max_prefix, (void*)current_prefix, prefix_len);
 
-        memset(min_prefix + prefix_len, 0, value_score_max_len);
-        memset(max_prefix + prefix_len, 0, value_score_max_len);
+        memset(min_prefix + prefix_len, 0, minlen);
+        memset(max_prefix + prefix_len, 0, maxlen);
 
-        zslParseLexRangeWithPrefix(c->argv[minidx], c->argv[maxidx], &range, min_prefix, max_prefix, prefix_len);
+        zslFreeLexRange(&range);
+        zslParseLexRangeWithPrefix(c->argv[minidx], c->argv[maxidx], &range, min_prefix, max_prefix, prefix_len, min_prefix_filter_len, max_prefix_filter_len);
 //        redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
 //        redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
+
+        if(min_prefix_filter) {
+            if(min_prefix_filter_ex) {
+                if(compareTwoStrings(current_prefix, prefix_len, min_prefix_filter, min_prefix_filter_len) <= 0) {
+                    range.minex = 1;
+                } else {
+                    range.minex = 0;
+                    if(! invert) {
+                        min_prefix_filter = NULL;
+                    }
+                }
+            } else {
+                if(compareTwoStrings(current_prefix, prefix_len, min_prefix_filter, min_prefix_filter_len) < 0) {
+                    range.minex = 1;
+                } else {
+                    range.minex = 0;
+                    if(! invert) {
+                        min_prefix_filter = NULL;
+                    }
+                }
+            }
+        }
+
+        if(max_prefix_filter) {
+            if(max_prefix_filter_ex) {
+                if(compareTwoStrings(current_prefix, prefix_len, max_prefix_filter, max_prefix_filter_len) >= 0) {
+                    range.maxex = 1;
+                } else {
+                    range.maxex = 0;
+                    if(invert) { // from high to low
+                        max_prefix_filter = NULL;
+                    }
+                }
+            } else {
+                if(compareTwoStrings(current_prefix, prefix_len, max_prefix_filter, max_prefix_filter_len) > 0) {
+                    range.maxex = 1;
+                } else {
+                    range.maxex = 0;
+                    if(invert) { // from high to low
+                        max_prefix_filter = NULL;
+                    }
+                }
+            }
+        }
+        printf("------ %s:%d range min=%c%s, max=%c%s\n", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
 
 //        printf("i=%d\n", i);
         if(zobj->encoding == REDIS_ENCODING_ZIPLIST) {
@@ -3318,7 +3416,7 @@ void genericZrangebylexinCommand(redisClient *c) {
 //                decrRefCount(zzlnobj);
                 if(reverse) {
                     while(start_list_node->next != NULL) {
-                        if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len) <= 0) {
+                        if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len, full_lex_range_mode) <= 0) {
                             break;
                         }
                         ++j;
@@ -3326,7 +3424,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                     }
                 } else {
                     while(start_list_node->next != NULL) {
-                        if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len) >= 0) {
+                        if(compareStringObjectsWithOffsets(start_list_node->next->value, zzlnobj, prefix_len, full_lex_range_mode) >= 0) {
                             break;
                         }
                         ++j;
@@ -3437,7 +3535,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                 int r;
                 if(reverse) {
                     while(start_list_node->next != NULL) {
-                        if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len)) <= 0) {
+                        if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len, full_lex_range_mode)) <= 0) {
                             break;
                         }
 //                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
@@ -3449,7 +3547,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                     }
                 } else {
                     while(start_list_node->next != NULL) {
-                        if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len)) >= 0) {
+                        if((r = compareStringObjectsWithOffsets(start_list_node->next->value, ln->obj, prefix_len, full_lex_range_mode)) >= 0) {
                             break;
                         }
 //                        printf("in loop i=%d, j=%d, r=%d, prefix_len=%d: \n", i, j, r, prefix_len);
@@ -3549,7 +3647,7 @@ void genericZrangebylex2CommandOld(redisClient *c, int reverse) {
     zlexrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
-    long offset = 0, limit = -1;
+    long /*offset = 0,*/ limit = -1;
     unsigned long rangelen = 0;
     void *replylen = NULL;
     int minidx, maxidx;
@@ -3605,9 +3703,9 @@ void genericZrangebylex2CommandOld(redisClient *c, int reverse) {
         memset(min_prefix + prefix_len, 0, value_score_max_len);
         memset(max_prefix + prefix_len, 0, value_score_max_len);
 
-        zslParseLexRangeWithPrefix(c->argv[minidx], c->argv[maxidx], &range, min_prefix, max_prefix, prefix_len);
-        redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
-        redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
+//        zslParseLexRangeWithPrefix(c->argv[minidx], c->argv[maxidx], &range, min_prefix, max_prefix, prefix_len); // TODO change
+//        redisLog(REDIS_WARNING,"------ %s:%d min=%s, max=%s, prefix_len=%d, prefix_count=%d", __FILE__, __LINE__, c->argv[minidx]->ptr, c->argv[maxidx]->ptr, prefix_len, prefix_count);
+//        redisLog(REDIS_WARNING,"------ %s:%d range min=%c%s, max=%c%s", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
 
         if(zobj->encoding == REDIS_ENCODING_ZIPLIST) {
 
@@ -3741,7 +3839,7 @@ void genericZrangebylex2CommandOld(redisClient *c, int reverse) {
     max_prefix = NULL;
     zslFreeLexRange(&range);
 
-    redisLog(REDIS_WARNING,"------ %s:%d rangelen=%d", __FILE__, __LINE__, rangelen);
+//    redisLog(REDIS_WARNING,"------ %s:%d rangelen=%d", __FILE__, __LINE__, rangelen);
 
     if(! rangelen) {
         addReply(c, shared.emptymultibulk);
