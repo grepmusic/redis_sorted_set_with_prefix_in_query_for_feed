@@ -8,7 +8,7 @@
         key:   all_user_micro_posts
         score: 始终为0
         value: 长度为3的微博发布者的用户id + 分隔符 + 长度为3的微博发布时间 + 分隔符 + 微博id
-               (注意: 不足3位则在前面补0; 发布时间理应为int32类型, 但为了简化示例, 这里认为其是uint8类型; 3位是因为uint8最大值为255, 其长度为3, 如果id是int32类型, 则应为11位; 分隔符是可选的, 加上显得会更清晰)
+               (注意: 不足3位则在前面补0; 发布时间理应为int32类型, 但为了简化示例, 这里认为其是uint8类型; 3位是因为uint8最大值为255, 其长度为3, 如果id是int32类型, 则应为11位(想想看为啥是11位?); 分隔符是可选的, 加上显得会更清晰)
                例如: 002-001-1 , 此处 微博发布者的用户id=2, 微博发布时间=1, 微博id=1, 分隔符=-
         通过以下命令加些测试数据:
         zadd all_user_micro_posts 0 002-001-1 0 002-008-8 0 002-010-10 0 002-015-15 0 002-017-17
@@ -50,17 +50,66 @@
          9) "101-013-13"
         10) "002-015-15"
 
-        我们来看下这个命令的详细用法:
-        127.0.0.1:6379> help zrangebylexin
+        剩下的就是需要调用者遍历此结果集, 然后按照分隔符"-"分隔每个结果, 并取出第3个字段(即微博id, 例如上面的 1, 2, 3, 7, 8, 9, ..., 15), 由 微博id 获取对应的主键缓存(以主键的值为cache key, 其所对应的记录本身作为cache value, 是一种利用率比较高的cache机制)即可
 
-          ZRANGEBYLEXIN key reverse_order_mode min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ]
-          summary: Return a range of members in a sorted set, by multiple lexicographical ranges constrained by prefix withIN {asc_prefix1, asc_prefix2, ..., asc_prefixN} and the rest(prefix stripped) within lexicographical range from min_lexical_value to max_lexical_value, ordered by the rest(prefix stripped) in lexicographical order first. reverse_order_mode can be [0+<Aa] to indicate ASC order, otherwise DESC order, or [fF] to indicate min_lexical_value and max_lexical_value are full lexicographical values, which is for duplicated postfix case; limit can be less than 1 to indicate that there is no limit; visit https://github.com/grepmusic/redis_sorted_set_with_prefix_in_query_for_feed/blob/master/README for detail usage
-          since: forked_version_since_2.8.9
-          group: sorted_set
+    我们来看下这个命令的详细用法:
+      127.0.0.1:6379> help zrangebylexin
 
-      为什么since: forked_version_since_2.8.9? 因为从2.8.9开始, redis似乎才引入zrangebylex, zrevrangebylex这类的命令, 即在score相同时, redis sorted set按照value的字典排序返回数据.
-      ZRANGEBYLEXIN key reverse_order_mode min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ]
+        ZRANGEBYLEXIN key reverse_order_mode min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ]
+        summary: Return a range of members in a sorted set, by multiple lexicographical ranges constrained by prefix withIN {asc_prefix1, asc_prefix2, ..., asc_prefixN} and the rest(prefix stripped) within lexicographical range from min_lexical_value to max_lexical_value, ordered by the rest(prefix stripped) in lexicographical order first. reverse_order_mode can be [0+<Aa] to indicate ASC order, otherwise DESC order, or [fF] to indicate min_lexical_value and max_lexical_value are full lexicographical values, which is for duplicated postfix case; limit can be less than 1 to indicate that there is no limit; visit https://github.com/grepmusic/redis_sorted_set_with_prefix_in_query_for_feed/blob/master/README for detail usage
+        since: forked_version_since_2.8.9
+        group: sorted_set
 
-      reverse_order_mode 前两个字符可以是 [0+<AaFf] 中任何一个字符, 其中 [0+<Aa] 一旦提供, 则返回的数据是按照 后缀字典序升序排序, 否则降序排序; [fF] 一旦提供表示 min_lexical_value 和 max_lexical_value 是 全值(即包含前缀的值), 这个标记对于 后缀 有重复的情况特别适用, 此标记还会改变 min_lexical_value 和 max_lexical_value 这两个选项的包含关系, 后面会提供例子说明
+        为什么since: forked_version_since_2.8.9? 因为从2.8.9开始, redis似乎才引入zrangebylex, zrevrangebylex这类的命令, 即在score相同时, redis sorted set按照value的字典排序返回数据.
+
+        ZRANGEBYLEXIN 返回有序集合中的一系列成员, 这些成员以{asc_prefix1, asc_prefix2, ..., asc_prefixN}作为前缀的, 并且其余部分(去除前缀的部分)在由min_lexical_value 和 max_lexical_value约束的范围中, 成员优先按照其余部分(去除前缀的部分)字典排序
+        reverse_order_mode 的前两个字符可以是 [0+<AaFf] 中任何一个字符, 其中 [0+<Aa] 一旦提供, 则返回的数据是按照 后缀字典序升序排序, 否则降序排序; [fF] 一旦提供, 表示 min_lexical_value 和 max_lexical_value 是 按照全值(即包含前缀的值)度量, 这个标记对于 后缀 有重复的情况特别适用, 此时返回的结果集中如果后缀相同, 则会按照前缀字典排序, 此标记还会改变 min_lexical_value 和 max_lexical_value 这两个选项的包含关系, 后面会提供例子说明; [0+<Aa] 和 [fF] 可以是任意顺序组合.
+
+        min_lexical_value & max_lexical_value: 对 后缀(postfix) 的范围作限定, 语法和 zrangebylex 里的min & max一致
+        min_lexical_value 为 [abc, (def, - 分别相当于 postfix >= "abc", postfix > "def", postfix可以任意小(即任何值都可以)
+        max_lexical_value 为 [abc, (def, + 分别相当于 postfix <= "abc", postfix < "def", postfix可以无穷大(即任何值都可以)
+
+        offset 跳过前offset条记录, 主要用于分页
+        limit  限定返回的结果集数量, < 1时表示数量不限制, 返回全部匹配的数据
+
+        asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ] 按照字典升序排序的前缀集合(它们的长度必须相同, 并且 asc_prefix1 [ < asc_prefix2 [ < ... < asc_prefixN ] ])
+
+      我们来看一个后缀重复的例子, 考虑到公司员工考勤情况(假设有多个打卡机, 员工可以同时打卡, 并且可以多次打卡), 这里用[a-z]表示员工姓名, 1-99表示员工打卡时间, 需求是想看指定的几个员工(比如输入姓名a b c表示只想看a b c三位)的打卡记录, 按照时间升序排序, 为了让命令看起来简洁一下, 这里的分隔符是空字符串
+      添加一些测试数据:
+      zadd staff_attendance 0 a01 0 a02 0 a03 0 b01 0 b02 0 b03 0 c01 0 c02 0 c03 0 c05 0 d01 0 e01
+
+      a, b, c三个员工都在1, 2, 3时刻打过一次卡, 此外c在5时刻打过一次卡, d, e在1时刻打过一次卡, 假设我们按照3条记录为一页进行分页,
+      查看a, b, c, d三位员工的打卡情况:
+      第1页:
+      127.0.0.1:6379> zrangebylexin staff_attendance af - + 0 3 a b c d
+      1) "a01"
+      2) "b01"
+      3) "c01"
+
+      第2页:
+      127.0.0.1:6379> zrangebylexin staff_attendance af (c01 + 0 3 a b c d
+      1) "d01"
+      2) "a02"
+      3) "b02"
+
+      第3页:
+      127.0.0.1:6379> zrangebylexin staff_attendance af (b02 + 0 3 a b c d
+      1) "c02"
+      2) "a03"
+      3) "b03"
+
+      第4页:
+      127.0.0.1:6379> zrangebylexin staff_attendance af (b03 + 0 3 a b c d
+      1) "c03"
+      2) "c05"
+
+      127.0.0.1:6379> zrangebylexin staff_attendance af (c05 + 0 3 a b c d
+      (empty list or set)
+
+
+
+
+
+
 
 

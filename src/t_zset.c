@@ -3064,9 +3064,9 @@ void dumpHex(char* addr, size_t size) {
     printf("addr=%p, content:", addr);
     for(size_t i = 0; i < size; ++i) {
         if((addr[i] >= '0' && addr[i] <= '9') || (addr[i] >= 'a' && addr[i] <= 'z') || (addr[i] >= 'A' && addr[i] <= 'Z')) {
-            printf(" *%c", addr[i]);
+            printf("%c", addr[i]);
         } else {
-            printf(" %02x", addr[i]);
+            printf(" %02x ", addr[i]);
         }
     }
     printf("\n");
@@ -3277,7 +3277,7 @@ void genericZrangebylexinCommand(redisClient *c) {
     linkListNode node_pool[NODE_POOL_SIZE]; // node pool to avoid z*alloc function call
     int node_pool_index = 0;
 
-    memset(node_pool, sizeof(node_pool), 0);
+    memset(node_pool, 0, sizeof(node_pool));
     linkListNode* head = (linkListNode*)&node_pool[node_pool_index++]; // zcalloc(sizeof(*head));
     head->next = head->value = NULL;
     linkListNode* start_list_node = NULL;
@@ -3353,7 +3353,7 @@ void genericZrangebylexinCommand(redisClient *c) {
                 }
             }
         }
-        printf("------ %s:%d range min=%c%s, max=%c%s\n", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
+//        printf("------ %s:%d range min=%c%s, max=%c%s\n", __FILE__, __LINE__, range.minex ? '(' : '[', min_prefix, range.maxex ? '(' : '[', max_prefix);
 
 //        printf("i=%d\n", i);
         if(zobj->encoding == REDIS_ENCODING_ZIPLIST) {
@@ -3420,11 +3420,11 @@ void genericZrangebylexinCommand(redisClient *c) {
                             break;
                         }
                         ++j;
+                        start_list_node = start_list_node->next;
                         if(total_limit > 0 && j >= total_limit) {
 //                    printf("break early\n");
                             break;
                         }
-                        start_list_node = start_list_node->next;
                     }
                 } else {
                     while(start_list_node->next != NULL) {
@@ -3432,11 +3432,11 @@ void genericZrangebylexinCommand(redisClient *c) {
                             break;
                         }
                         ++j;
+                        start_list_node = start_list_node->next;
                         if(total_limit > 0 && j >= total_limit) {
 //                    printf("break early\n");
                             break;
                         }
-                        start_list_node = start_list_node->next;
                     }
                 }
 
@@ -3446,8 +3446,8 @@ void genericZrangebylexinCommand(redisClient *c) {
                 }
 
 //                printf("the_limit=%ld, head=%p, start_list_node=%p, ln=%p, ln->obj=%p, ln->obj->ptr = %p, ln->obj->ptr content:",
-//                       the_limit, head, start_list_node, ln, ln->obj, ln->obj->ptr);
-//                dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
+//                       the_limit, head, start_list_node, zzlnobj, zzlnobj, zzlnobj->ptr);
+//                dumpHex(zzlnobj->ptr, sdslen(zzlnobj->ptr));
 //                printf("\n");
 
                 // add tmp after start_list_node & move start_list_node next
@@ -3463,6 +3463,8 @@ void genericZrangebylexinCommand(redisClient *c) {
                 start_list_node->next = tmp;
                 ++j;
                 start_list_node = tmp;
+//                robj* xxx = start_list_node->value;
+//                printf("zzlnobj=%p, next=%p\n", zzlnobj->ptr, xxx->ptr);
 
                 /* Move to next node */
                 if (reverse) {
@@ -3551,11 +3553,11 @@ void genericZrangebylexinCommand(redisClient *c) {
 //                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 
                         ++j;
+                        start_list_node = start_list_node->next;
                         if(total_limit > 0 && j >= total_limit) {
 //                    printf("break early\n");
                             break;
                         }
-                        start_list_node = start_list_node->next;
                     }
                 } else {
                     while(start_list_node->next != NULL) {
@@ -3567,11 +3569,11 @@ void genericZrangebylexinCommand(redisClient *c) {
 //                        dumpHex(ln->obj->ptr, sdslen(ln->obj->ptr));
 
                         ++j;
+                        start_list_node = start_list_node->next;
                         if(total_limit > 0 && j >= total_limit) {
 //                    printf("break early\n");
                             break;
                         }
-                        start_list_node = start_list_node->next;
                     }
                     visitedNodes[0] = ln;
                 }
