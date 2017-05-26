@@ -1,173 +1,66 @@
-Where to find complete Redis documentation?
--------------------------------------------
 
-This README is just a fast "quick start" document. You can find more detailed
-documentation at http://redis.io
+    这个redis源码是基于redis-3.0.7基础上修改而来，可以让redis sorted set支持 *定长前缀IN查询*，并以 一定范围限制后缀 过滤数据（可能难以理解，后面有示例说明）。
+    我们考虑微博关注这种类型的业务：
+        id为1的用户, 关注了id为 2、11、101 这3个用户, 那么id为1的用户查看他关注的人的微博时, 假设我们采用"拉"的模式（与之相对的是push模式, 当id为2的用户发了一条微博时, 分别将此微博插入到其所有粉丝所在的表中, 像 杨幂 这种大V, 在此模式下需要插入数千万条记录, 即使采用延迟插入的模式, 即用户查看其关注的人微博时, 才执行插入, 但一旦其粉丝同时刷微博, 也是压力很大的事情...）, 执行的sql语句可能类似如下(其中, 表user_micro_post是所有用户发布的微博总表, 字段user_id是微博发布者的用户id, 为了简化后面的示例, 我们假设这里的id都是 uint8, 即 8位无符号整数 类型, 字段created_at表示微博的发布时间)
+            SELECT * FROM user_micro_post WHERE user_id IN (2, 11, 101) order by created_at limit 0, 10; -- 取最新的前10条数据
+        但是数据库顶不住这种大量的查询, 此外这种查询即便用到索引, 效率也不会很高, 另外数据库的连接数一般都有限制的, 让我们用redis尝试解决此问题吧!
+        我们只用一个sorted set保存所有人发布的微博, 其结构如下:
+        key:   all_user_micro_posts
+        score: 始终为0
+        value: 长度为3的微博发布者的用户id + 分隔符 + 长度为3的微博发布时间 + 分隔符 + 微博id
+               (注意: 不足3位则在前面补0; 发布时间理应为int32类型, 但为了简化示例, 这里认为其是uint8类型; 3位是因为uint8最大值为255, 其长度为3, 如果id是int32类型, 则应为11位; 分隔符是可选的, 加上显得会更清晰)
+               例如: 002-001-1 , 此处 微博发布者的用户id=2, 微博发布时间=1, 微博id=1, 分隔符=-
+        通过以下命令加些测试数据:
+        zadd all_user_micro_posts 0 002-001-1 0 002-008-8 0 002-010-10 0 002-015-15 0 002-017-17
+        zadd all_user_micro_posts 0 003-005-5 0 003-020-20 0 003-030-30
+        zadd all_user_micro_posts 0 011-003-3 0 011-009-9 0 011-019-19 0 011-023-23 0 011-029-29 0 011-031-31 0 011-050-50
+        zadd all_user_micro_posts 0 101-002-2 0 101-007-7 0 101-012-12 0 101-013-13 0 101-025-25 0 101-026-26
 
-Building Redis
---------------
+        即id为2的用户发了5条微博, 时间分别是 1, 8, 10, 15, 17
+        即id为3的用户发了3条微博, 时间分别是 5, 20, 30
+        即id为11的用户发了7条微博, 时间分别是 3, 9, 19, 23, 29, 31, 50
+        即id为101的用户发了6条微博, 时间分别是 2, 7, 12, 13, 25, 26
 
-Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
-We support big endian and little endian architectures.
+        可以用以下命令取出我们需要的数据(按照时间倒序), 即id为1关注的用户发布的微博(取最新的前10条数据):
+        127.0.0.1:6379> zrangebylexin all_user_micro_posts d - + 0 10 002 011 101
+         1) "011-050-50"
+         2) "011-031-31"
+         3) "011-029-29"
+         4) "101-026-26"
+         5) "101-025-25"
+         6) "011-023-23"
+         7) "011-019-19"
+         8) "002-017-17"
+         9) "002-015-15"
+        10) "101-013-13"
 
-It may compile on Solaris derived systems (for instance SmartOS) but our
-support for this platform is "best effort" and Redis is not guaranteed to
-work as well as in Linux, OSX, and *BSD there.
+        取出来的数据正是我们想要的数据, d表示降序排序(其实默认就是降序, 只要不传[0+<Aa]任一字符皆可), -和+表示对后缀(以011-050-50为例, 前缀是011, 后缀是-050-50)不作过滤
 
-It is as simple as:
+        如果我们想取出 发布时间介于 [1,20](均包含) 内的最旧的10条数据, 可以这样:
 
-    % make
+        127.0.0.1:6379> zrangebylexin all_user_micro_posts < [-001 [-020 0 10 002 011 101
+         1) "002-001-1"
+         2) "101-002-2"
+         3) "011-003-3"
+         4) "101-007-7"
+         5) "002-008-8"
+         6) "011-009-9"
+         7) "002-010-10"
+         8) "101-012-12"
+         9) "101-013-13"
+        10) "002-015-15"
 
-You can run a 32 bit Redis binary using:
+        我们来看下这个命令的详细用法:
+        127.0.0.1:6379> help zrangebylexin
 
-    % make 32bit
+          ZRANGEBYLEXIN key reverse_order_mode min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ]
+          summary: Return a range of members in a sorted set, by multiple lexicographical ranges constrained by prefix withIN {asc_prefix1, asc_prefix2, ..., asc_prefixN} and the rest(prefix stripped) within lexicographical range from min_lexical_value to max_lexical_value, ordered by the rest(prefix stripped) in lexicographical order first. reverse_order_mode can be [0+<Aa] to indicate ASC order, otherwise DESC order, or [fF] to indicate min_lexical_value and max_lexical_value are full lexicographical values, which is for duplicated postfix case; limit can be less than 1 to indicate that there is no limit; visit https://github.com/grepmusic/redis_sorted_set_with_prefix_in_query_for_feed/blob/master/README for detail usage
+          since: forked_version_since_2.8.9
+          group: sorted_set
 
-After building Redis is a good idea to test it, using:
+      为什么since: forked_version_since_2.8.9? 因为从2.8.9开始, redis似乎才引入zrangebylex, zrevrangebylex这类的命令, 即在score相同时, redis sorted set按照value的字典排序返回数据.
+      ZRANGEBYLEXIN key reverse_order_mode min_lexical_value max_lexical_value offset limit asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ]
 
-    % make test
+      reverse_order_mode 前两个字符可以是 [0+<AaFf] 中任何一个字符, 其中 [0+<Aa] 一旦提供, 则返回的数据是按照 后缀字典序升序排序, 否则降序排序; [fF] 一旦提供表示 min_lexical_value 和 max_lexical_value 是 全值(即包含前缀的值), 这个标记对于 后缀 有重复的情况特别适用, 此标记还会改变 min_lexical_value 和 max_lexical_value 这两个选项的包含关系, 后面会提供例子说明
 
-Fixing build problems with dependencies or cached build options
-—--------
-Redis has some dependencies which are included into the "deps" directory.
-"make" does not rebuild dependencies automatically, even if something in the
-source code of dependencies is changes.
 
-When you update the source code with `git pull` or when code inside the
-dependencies tree is modified in any other way, make sure to use the following
-command in order to really clean everything and rebuild from scratch:
-
-    make distclean
-
-This will clean: jemalloc, lua, hiredis, linenoise.
-
-Also if you force certain build options like 32bit target, no C compiler
-optimizations (for debugging purposes), and other similar build time options,
-those options are cached indefinitely until you issue a "make distclean"
-command.
-
-Fixing problems building 32 bit binaries
----------
-
-If after building Redis with a 32 bit target you need to rebuild it
-with a 64 bit target, or the other way around, you need to perform a
-"make distclean" in the root directory of the Redis distribution.
-
-In case of build errors when trying to build a 32 bit binary of Redis, try
-the following steps:
-
-* Install the packages libc6-dev-i386 (also try g++-multilib).
-* Try using the following command line instead of "make 32bit":
-
-    make CFLAGS="-m32 -march=native" LDFLAGS="-m32"
-
-Allocator
----------
-
-Selecting a non-default memory allocator when building Redis is done by setting
-the `MALLOC` environment variable. Redis is compiled and linked against libc
-malloc by default, with the exception of jemalloc being the default on Linux
-systems. This default was picked because jemalloc has proven to have fewer
-fragmentation problems than libc malloc.
-
-To force compiling against libc malloc, use:
-
-    % make MALLOC=libc
-
-To compile against jemalloc on Mac OS X systems, use:
-
-    % make MALLOC=jemalloc
-
-Verbose build
--------------
-
-Redis will build with a user friendly colorized output by default.
-If you want to see a more verbose output use the following:
-
-    % make V=1
-
-Running Redis
--------------
-
-To run Redis with the default configuration just type:
-
-    % cd src
-    % ./redis-server
-    
-If you want to provide your redis.conf, you have to run it using an additional
-parameter (the path of the configuration file):
-
-    % cd src
-    % ./redis-server /path/to/redis.conf
-
-It is possible to alter the Redis configuration passing parameters directly
-as options using the command line. Examples:
-
-    % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
-    % ./redis-server /etc/redis/6379.conf --loglevel debug
-
-All the options in redis.conf are also supported as options using the command
-line, with exactly the same name.
-
-Playing with Redis
-------------------
-
-You can use redis-cli to play with Redis. Start a redis-server instance,
-then in another terminal try the following:
-
-    % cd src
-    % ./redis-cli
-    redis> ping
-    PONG
-    redis> set foo bar
-    OK
-    redis> get foo
-    "bar"
-    redis> incr mycounter
-    (integer) 1
-    redis> incr mycounter
-    (integer) 2
-    redis> 
-
-You can find the list of all the available commands here:
-
-    http://redis.io/commands
-
-Installing Redis
------------------
-
-In order to install Redis binaries into /usr/local/bin just use:
-
-    % make install
-
-You can use "make PREFIX=/some/other/directory install" if you wish to use a
-different destination.
-
-Make install will just install binaries in your system, but will not configure
-init scripts and configuration files in the appropriate place. This is not
-needed if you want just to play a bit with Redis, but if you are installing
-it the proper way for a production system, we have a script doing this
-for Ubuntu and Debian systems:
-
-    % cd utils
-    % ./install_server.sh
-
-The script will ask you a few questions and will setup everything you need
-to run Redis properly as a background daemon that will start again on
-system reboots.
-
-You'll be able to stop and start Redis using the script named
-/etc/init.d/redis_<portnumber>, for instance /etc/init.d/redis_6379.
-
-Code contributions
----
-
-Note: by contributing code to the Redis project in any form, including sending
-a pull request via Github, a code fragment or patch via private email or
-public discussion groups, you agree to release your code under the terms
-of the BSD license that you can find in the COPYING file included in the Redis
-source distribution.
-
-Please see the CONTRIBUTING file in this source distribution for more
-information.
-
-Enjoy!
