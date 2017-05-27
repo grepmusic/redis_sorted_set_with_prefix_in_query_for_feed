@@ -2,7 +2,7 @@
     这个redis源码是基于redis-3.0.7基础上修改而来，可以让redis sorted set支持 *定长前缀IN查询*，并以 一定范围限制后缀 过滤数据（可能难以理解，后面有示例说明）。
     我们考虑微博关注这种类型的业务：
         id为1的用户, 关注了id为 2、11、101 这3个用户, 那么id为1的用户查看他关注的人的微博时, 假设我们采用"拉"的模式（与之相对的是push模式, 当id为2的用户发了一条微博时, 分别将此微博插入到其所有粉丝所在的表中, 像 杨幂 这种大V, 在此模式下需要插入数千万条记录, 即使采用延迟插入的模式, 即用户查看其关注的人微博时, 才执行插入, 但一旦其粉丝同时刷微博, 也是压力很大的事情...）, 执行的sql语句可能类似如下(其中, 表user_micro_post是所有用户发布的微博总表, 字段user_id是微博发布者的用户id, 为了简化后面的示例, 我们假设这里的id都是 uint8, 即 8位无符号整数 类型, 字段created_at表示微博的发布时间)
-            SELECT * FROM user_micro_post WHERE user_id IN (2, 11, 101) order by created_at limit 0, 10; -- 取最新的前10条数据
+            SELECT * FROM user_micro_post WHERE user_id IN (2, 11, 101) order by created_at desc limit 0, 10; -- 取最新的前10条数据
         但是数据库顶不住这种大量的查询, 此外这种查询即便用到索引, 效率也不会很高, 另外数据库的连接数一般都有限制的, 让我们用redis尝试解决此问题吧!
         我们只用一个sorted set保存所有人发布的微博, 其结构如下:
         key:   all_user_micro_posts
