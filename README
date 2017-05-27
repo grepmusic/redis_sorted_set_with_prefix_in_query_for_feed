@@ -72,44 +72,65 @@
         offset 跳过前offset条记录, 主要用于分页
         limit  限定返回的结果集数量, < 1时表示数量不限制, 返回全部匹配的数据
 
-        asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ] 按照字典升序排序的前缀集合(它们的长度必须相同, 并且 asc_prefix1 [ < asc_prefix2 [ < ... < asc_prefixN ] ])
+        asc_prefix1 [ asc_prefix2 [ ... asc_prefixN ] ] 按照字典升序排序(为了降低redis服务端压力, 需要客户端对前缀进行升序排序)的前缀集合(它们的长度必须相同, 并且 asc_prefix1 [ < asc_prefix2 [ < ... < asc_prefixN ] ])
 
       我们来看一个后缀重复的例子, 考虑到公司员工考勤情况(假设有多个打卡机, 员工可以同时打卡, 并且可以多次打卡), 这里用[a-z]表示员工姓名, 1-99表示员工打卡时间, 需求是想看指定的几个员工(比如输入姓名a b c表示只想看a b c三位)的打卡记录, 按照时间升序排序, 为了让命令看起来简洁一下, 这里的分隔符是空字符串
       添加一些测试数据:
       zadd staff_attendance 0 a01 0 a02 0 a03 0 b01 0 b02 0 b03 0 c01 0 c02 0 c03 0 c05 0 d01 0 e01
 
-      a, b, c三个员工都在1, 2, 3时刻打过一次卡, 此外c在5时刻打过一次卡, d, e在1时刻打过一次卡, 假设我们按照3条记录为一页进行分页,
-      查看a, b, c, d三位员工的打卡情况:
+      a, b, c三个员工都在1, 2, 3时刻打过一次卡, 此外c在5时刻打过一次卡, d, e在1时刻打过一次卡, 假设我们按照3条记录为一页进行分页, 查看a, b, c, d三位员工的打卡情况:
       第1页:
       127.0.0.1:6379> zrangebylexin staff_attendance af - + 0 3 a b c d
       1) "a01"
       2) "b01"
       3) "c01"
 
-      第2页:
+      第2页(page=2, 即offset=(2-1) * 3 = 3 或者 > "c01"(上一页最后一条记录) 均可以):
+      127.0.0.1:6379> zrangebylexin staff_attendance af - + 3 3 a b c d
+      或者
       127.0.0.1:6379> zrangebylexin staff_attendance af (c01 + 0 3 a b c d
       1) "d01"
       2) "a02"
       3) "b02"
 
-      第3页:
+      第3页(page=3, offset=6 或者 > "b02" 均可以):
+      127.0.0.1:6379> zrangebylexin staff_attendance af - + 6 3 a b c d
+      或者
       127.0.0.1:6379> zrangebylexin staff_attendance af (b02 + 0 3 a b c d
       1) "c02"
       2) "a03"
       3) "b03"
 
-      第4页:
+      第4页(page=4, offset=9 或者 > "b03" 均可以):
+      127.0.0.1:6379> zrangebylexin staff_attendance af - + 9 3 a b c d
+      或者
       127.0.0.1:6379> zrangebylexin staff_attendance af (b03 + 0 3 a b c d
       1) "c03"
       2) "c05"
 
+      第5页(page=5, offset=12 或者 > "b03" 均可以):
+      127.0.0.1:6379> zrangebylexin staff_attendance af - + 12 3 a b c d
+      或者
       127.0.0.1:6379> zrangebylexin staff_attendance af (c05 + 0 3 a b c d
       (empty list or set)
 
+      另一个极端情况测试例子(前缀以"\xff"字符开始):
+      127.0.0.1:6379> zadd edge_case 0 "\x00a" 0 "\x00b" 0 "\xffa" 0 "\xffb" 0 "\xffc" 0 1a 0 2b 0 3c 0 5b 0 5c
+      (integer) 10
+      127.0.0.1:6379> zrangebylexin edge_case af "[\xffa" "(\xffb" 0 -1 "\x00" 2 "\xff"
+      1) "\xffa"
+      2) "\x00b"
+      3) "2b"
 
+      以上就是全值模式(提供了[fF]标记)的效果, 在后缀相同时会按照前缀排序(性能相对于 非全值模式 有所降低, 因为此模式下一定不会比较前缀), 后面的提交会以形式化方式说明全值模式下的查询逻辑.
 
+    待优化的部分:
+        1. 【提升性能】对于 prefix IN (b, c, d) 情况, 如果sorted set里只含有a开头的数据, 这时用区间 min=[b, max=(c 去查找时, 发现sorted set里面的值总是在此区间的左侧, 即 < b, 此时没必要循环取c, d开头的数据了
+        2. 【提升性能】对于ziplist类型编码的数据, zzlLexValueGteMin3, zzlLexValueLteMax3 这样的方法, 理论上可以在栈上预分配一定空间创建robj, 以替代消耗较大的zmalloc内存分配方式, 但需注意变量的生命周期
+        3. phpredis_zrangebylexin.patch 是phpredis对zrangebylexin命令的支持, 目前完成一半, 待继续开发
 
+    为什么性能会很高?
+        因为会利用上次查找时的位置进行查找(而不是每次都从头查找), 例如在有序集{1, 3, 5, 7, 9}中查找7, 9两个元素时, 查找到元素7后, 我们查找元素9时, 可以从7的位置开始搜索(只搜索了一次), 因为前面的数据都小于7!
+        后面的提交会说明原理, 当然也可以自行阅读源码中函数 genericZrangebylexinCommand 部分
 
-
-
-
+    目前处于开发阶段, 请勿用于生产环境, 有任何问题请提issue, 谢谢
