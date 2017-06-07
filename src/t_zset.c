@@ -3617,10 +3617,16 @@ void genericZrangebylexinCommand(redisClient *c) {
     }
 
     i = 0;
+    //printf("last two nodes of node_pool = %p, %p\n", &node_pool[NODE_POOL_SIZE-2], &node_pool[NODE_POOL_SIZE -1]);
+    linkListNode* max = node_pool + NODE_POOL_SIZE - 1;
     while(1) {
         start_list_node = head->next;
-        if(++i > NODE_POOL_SIZE) {
+        ++i;
+        /*if(++i > NODE_POOL_SIZE) {
 //            printf("zfree head = %p\n", head);
+            zfree(head);
+        }*/
+        if(head > max || head < node_pool) {
             zfree(head);
         }
 
